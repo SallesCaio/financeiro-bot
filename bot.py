@@ -7,6 +7,8 @@ import os, json, sqlite3, logging, re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -606,8 +608,182 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if cmd in ("menu_resumo",):
         # Redireciona para o comando
         await query.edit_message_text("📊 Carregando resumo...")
-        # Simula chamada do comando
     await query.edit_message_text("✅ Funcionalidade em desenvolvimento. Use os comandos diretos por enquanto.")
+
+# ═══════════════════════════════════════════════════════
+# NOTIFICAÇÕES INTELIGENTES
+# ═══════════════════════════════════════════════════════
+async def notify_all_users(context: ContextTypes.DEFAULT_TYPE, notif_type: str, msg_template: str):
+    """Envia notificação para todos os usuários cadastrados."""
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute("SELECT user_id FROM users WHERE onboarding_done=1").fetchall()
+    for (uid,) in users:
+        try:
+            await context.bot.send_message(uid, msg_template, parse_mode="Markdown")
+        except Exception as e:
+            logger.warning(f"Falha ao notificar {uid}: {e}")
+
+async def weekly_summary(context: ContextTypes.DEFAULT_TYPE):
+    """Resumo semanal — segunda-feira 9h."""
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute("SELECT user_id, spreadsheet_id, income, name FROM users WHERE onboarding_done=1").fetchall()
+
+    for uid, sid, income, name in users:
+        try:
+            ym = datetime.now().strftime("%Y-%m")
+            data = read_range(sid, f"{ym}!A1:J200")
+            if len(data) <= 1:
+                continue
+
+            # Gastos dos últimos 7 dias
+            week_ago = (datetime.now() - timedelta(days=7)).strftime("%d/%m/%Y")
+            week_total = 0
+            week_cats = {}
+            for r in data[1:]:
+                if len(r) > 5 and r[0] and r[5]:
+                    try:
+                        gasto_date = datetime.strptime(r[0], "%d/%m/%Y")
+                        if gasto_date >= datetime.now() - timedelta(days=7):
+                            val = float(r[5])
+                            week_total += val
+                            cat = r[2] if len(r) > 2 and r[2] else "OUTROS"
+                            week_cats[cat] = week_cats.get(cat, 0) + val
+                    except:
+                        pass
+
+            if week_total == 0:
+                continue
+
+            top = sorted(week_cats.items(), key=lambda x: -x[1])[:3]
+            lines = [
+                f"📊 *Resumo Semanal — {name}*",
+                f"💰 Total: R$ {week_total:,.2f}",
+                f"📂 Top categorias:",
+            ]
+            for cat, val in top:
+                lines.append(f"  • {cat}: R$ {val:,.2f}")
+
+            # Verificar se passou 50% da renda
+            if week_total > income * 0.5:
+                lines.append(f"\n⚠️ Você já gastou {week_total/income*100:.0f}% da sua renda essa semana!")
+
+            await context.bot.send_message(uid, "\n".join(lines), parse_mode="Markdown")
+
+        except Exception as e:
+            logger.error(f"Erro weekly_summary para {uid}: {e}")
+
+async def spending_spike_alert(context: ContextTypes.DEFAULT_TYPE):
+    """Alerta de aumento anormal — diário às 18h."""
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute("SELECT user_id, spreadsheet_id FROM users WHERE onboarding_done=1").fetchall()
+
+    for uid, sid in users:
+        try:
+            ym = datetime.now().strftime("%Y-%m")
+            data = read_range(sid, f"{ym}!A1:J200")
+            if len(data) <= 5:
+                continue
+
+            # Comparar essa semana vs semana passada
+            now = datetime.now()
+            this_week = {}
+            last_week = {}
+
+            for r in data[1:]:
+                if len(r) > 5 and r[0] and r[5] and r[2]:
+                    try:
+                        d = datetime.strptime(r[0], "%d/%m/%Y")
+                        val = float(r[5])
+                        cat = r[2]
+                        if d >= now - timedelta(days=7):
+                            this_week[cat] = this_week.get(cat, 0) + val
+                        elif d >= now - timedelta(days=14):
+                            last_week[cat] = last_week.get(cat, 0) + val
+                    except:
+                        pass
+
+            # Detectar spikes > 50%
+            alerts = []
+            for cat, curr in this_week.items():
+                prev = last_week.get(cat, 0)
+                if prev > 0 and curr > prev * 1.5:
+                    pct = int((curr / prev - 1) * 100)
+                    alerts.append(f"🚨 *{cat}* subiu {pct}%: R$ {prev:,.2f} → R$ {curr:,.2f}")
+
+            if alerts:
+                await context.bot.send_message(
+                    uid,
+                    f"⚠️ *Alertas de gastos — {name if (name := get_user(uid)) else ''}*\n\n" + "\n".join(alerts),
+                    parse_mode="Markdown"
+                )
+
+        except Exception as e:
+            logger.error(f"Erro spike_alert para {uid}: {e}")
+
+async def budget_warning(context: ContextTypes.DEFAULT_TYPE):
+    """Alerta de orçamento estourado — diário às 10h."""
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute("SELECT user_id, spreadsheet_id, income FROM users WHERE onboarding_done=1").fetchall()
+
+    for uid, sid, income in users:
+        try:
+            ym = datetime.now().strftime("%Y-%m")
+            data = read_range(sid, f"{ym}!A1:J200")
+            total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
+            pct = total / income * 100 if income > 0 else 0
+
+            if pct >= 80:
+                days_left = 30 - datetime.now().day
+                limite_diario = (income - total) / max(days_left, 1)
+                await context.bot.send_message(
+                    uid,
+                    f"🔴 *Alerta de orçamento!*\n\n"
+                    f"Gasto: R$ {total:,.2f} de R$ {income:,.2f} ({pct:.0f}%)\n"
+                    f"Restam {days_left} dias no mês\n"
+                    f"Limite diário: R$ {limite_diario:,.2f}\n\n"
+                    f"⚠️ Cuidado com gastos extras!",
+                    parse_mode="Markdown"
+                )
+
+        except Exception as e:
+            logger.error(f"Erro budget_warning para {uid}: {e}")
+
+async def streak_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Lembrete de streak — diário às 20h se não registrou hoje."""
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute(
+            "SELECT user_id, name, streak FROM users WHERE onboarding_done=1 AND last_gasto_date != ?",
+            (datetime.now().strftime("%Y-%m-%d"),)
+        ).fetchall()
+
+    for uid, name, streak in users:
+        try:
+            await context.bot.send_message(
+                uid,
+                f"🔥 *{name}, não esqueça de registrar seus gastos hoje!*\n"
+                f"Streak atual: {streak or 0} dias. Não perca a sequência!",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.warning(f"Falha streak_reminder para {uid}: {e}")
+
+async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
+    """Cria aba do novo mês — dia 1 às 00:05."""
+    ym = datetime.now().strftime("%Y-%m")
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute("SELECT user_id, spreadsheet_id, name FROM users WHERE onboarding_done=1").fetchall()
+
+    for uid, sid, name in users:
+        try:
+            get_or_create_month_sheet(sid, ym)
+            await context.bot.send_message(
+                uid,
+                f"📅 *Novo mês: {ym}*\n"
+                f"Sua planilha está pronta! Bons hábitos financeiros esse mês, {name}! 💪",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Erro monthly_reset para {uid}: {e}")
 
 # ═══════════════════════════════════════════════════════
 # MAIN
@@ -615,6 +791,23 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
+
+    # ── Job Queue (notificações) ──
+    scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
+    scheduler.add_job(lambda: None, CronTrigger(day_of_week="mon", hour=9), args=[], id="weekly")
+    app.job_queue.run_repeating(weekly_summary, interval=604800, first=10, name="weekly_summary")  # ~7 dias
+
+    # Alerta de orçamento: todo dia às 10h
+    app.job_queue.run_repeating(budget_warning, interval=86400, first=30, name="budget_warning")
+
+    # Alerta de spike: todo dia às 18h
+    app.job_queue.run_repeating(spending_spike_alert, interval=86400, first=60, name="spike_alert")
+
+    # Lembrete streak: todo dia às 20h
+    app.job_queue.run_repeating(streak_reminder, interval=86400, first=90, name="streak_reminder")
+
+    # Reset mensal: dia 1
+    app.job_queue.run_repeating(monthly_reset, interval=86400, first=120, name="monthly_reset")
 
     # Onboarding
     onboarding_conv = ConversationHandler(
