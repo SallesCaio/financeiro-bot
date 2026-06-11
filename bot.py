@@ -28,6 +28,17 @@ DB_PATH = Path(__file__).parent / "finbot.db"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("FinBot")
 
+# Error handler
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Exception: {context.error}", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Ocorreu um erro. Tente novamente ou use /start."
+            )
+        except Exception:
+            pass
+
 # Conversation states
 (NAME, INCOME, CARDS, GOAL,
  AMOUNT, DESC, CATEGORY, PAYMENT, CARD_SEL, NECESSARY, OBS) = range(11)
@@ -848,6 +859,9 @@ def main():
     app.add_handler(CommandHandler("limite", cmd_limite))
     app.add_handler(CommandHandler("novomes", cmd_novomes))
     app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_"))
+
+    # Error handler
+    app.add_error_handler(error_handler)
 
     # Start HTTP server in background thread for Render health check
     import threading
