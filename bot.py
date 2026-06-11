@@ -849,16 +849,8 @@ def main():
     app.add_handler(CommandHandler("novomes", cmd_novomes))
     app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_"))
 
-    # Start polling in background thread
+    # Start HTTP server in background thread for Render health check
     import threading
-    poll_thread = threading.Thread(
-        target=app.run_polling,
-        kwargs={"drop_pending_updates": True, "close_loop": False},
-        daemon=True
-    )
-    poll_thread.start()
-
-    # Mini HTTP server for Render health check
     from http.server import HTTPServer, BaseHTTPRequestHandler
     port = int(os.environ.get("PORT", 8080))
 
@@ -870,11 +862,15 @@ def main():
             self.wfile.write(b"FinBot OK\n")
 
         def log_message(self, format, *args):
-            pass  # silence HTTP logs
+            pass
 
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    http_server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    http_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+    http_thread.start()
+
     logger.info(f"🤖 FinBot iniciado na porta {port}")
-    server.serve_forever()
+    # Run polling in MAIN thread (required for signal handlers)
+    app.run_polling(drop_pending_updates=True, close_loop=False)
 
 if __name__ == "__main__":
     main()
