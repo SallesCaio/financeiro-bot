@@ -38,7 +38,7 @@ logger = logging.getLogger("FinBot")
  FIXO_NOME, FIXO_VALOR, FIXO_DIA, FIXO_CATEGORIA,
  PARC_NOME, PARC_TOTAL, PARC_NPARC, PARC_VALOR_PARC, PARC_CATEGORIA,
  META_NOME, META_TARGET, META_CATEGORIA_META,
- BUSCA_TERMO) = range(23)
+ BUSCA_TERMO) = range(24)
 
 CATEGORIES = {
     "alimentacao": "🍽️ Alimentação", "mercado": "🛒 Mercado",
