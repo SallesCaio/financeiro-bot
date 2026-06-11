@@ -242,7 +242,7 @@ def main():
     app.add_handler(CommandHandler("categorias", categorias))
 
     logger.info("Bot iniciado...")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True, close_loop=False)
 
 
 if __name__ == "__main__":
