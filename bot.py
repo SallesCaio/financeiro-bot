@@ -312,12 +312,20 @@ async def onboarding_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = update.effective_user.first_name or ""
 
     try:
-        # Criar planilha pessoal
-        logger.info(f"Onboarding: criando planilha para {data['name']}")
-        spreadsheet_id = create_user_spreadsheet(data["name"])
-        logger.info(f"Planilha criada: {spreadsheet_id}")
+        # Verificar se usuário já existe no DB
+        existing_user = get_user(user_id)
+        
+        if existing_user and existing_user.get("spreadsheet_id"):
+            # Usuário já tem planilha - reutilizar
+            spreadsheet_id = existing_user["spreadsheet_id"]
+            logger.info(f"Onboarding: reutilizando planilha existente {spreadsheet_id} para {data['name']}")
+        else:
+            # Criar nova planilha apenas se não existir
+            logger.info(f"Onboarding: criando nova planilha para {data['name']}")
+            spreadsheet_id = create_user_spreadsheet(data["name"])
+            logger.info(f"Planilha criada: {spreadsheet_id}")
 
-        # Salvar no DB
+        # Salvar/atualizar no DB
         logger.info(f"Onboarding: salvando usuário {user_id} no DB")
         upsert_user(
             user_id,
@@ -329,14 +337,14 @@ async def onboarding_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         logger.info(f"Onboarding: usuário salvo no DB")
 
-        # Criar aba do mês atual
+        # Garantir aba do mês atual
         ym = datetime.now().strftime("%Y-%m")
-        logger.info(f"Onboarding: criando aba {ym}")
+        logger.info(f"Onboarding: criando/verificando aba {ym}")
         get_or_create_month_sheet(spreadsheet_id, ym)
-        logger.info(f"Onboarding: aba {ym} criada")
+        logger.info(f"Onboarding: aba {ym} verificada")
 
         await update.message.reply_text(
-            f"✅ *Perfil criado, {data['name']}!*\n\n"
+            f"✅ *Perfil {' restaurado' if existing_user and existing_user.get('spreadsheet_id') else 'criado'}, {data['name']}!*\n\n"
             f"💰 Renda mensal: R$ {data['income']:,.2f}\n"
             f"💳 Cartões: {data['cards']}\n"
             f"🎯 Objetivo: {data['goal']}\n\n"
