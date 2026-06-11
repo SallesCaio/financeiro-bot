@@ -545,10 +545,16 @@ def ensure_user(update: Update):
 async def cmd_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ensure_user(update):
         await update.message.reply_text("Use /start primeiro."); return
+    logger.info(f"/resumo chamado por user {update.effective_user.id}")
     user = get_user(update.effective_user.id)
     sid = user["spreadsheet_id"]
     ym = datetime.now().strftime("%Y-%m")
-    data = read_range(sid, f"{ym}!A1:J200")
+    try:
+        data = read_range(sid, f"{ym}!A1:J200")
+    except Exception as e:
+        logger.error(f"Erro read_range: {e}")
+        await update.message.reply_text("❌ Erro ao ler planilha")
+        return
     if len(data) <= 1:
         await update.message.reply_text("📊 Nenhum gasto registrado esse mês.")
         return
@@ -576,27 +582,32 @@ async def cmd_parcelas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_limite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ensure_user(update): return
-    user = get_user(update.effective_user.id)
-    income = user["income"]
-    sid = user["spreadsheet_id"]
-    ym = datetime.now().strftime("%Y-%m")
-    data = read_range(sid, f"{ym}!A1:J200")
-    total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
+    logger.info(f"/limite chamado por user {update.effective_user.id}")
+    try:
+        user = get_user(update.effective_user.id)
+        income = user["income"]
+        sid = user["spreadsheet_id"]
+        ym = datetime.now().strftime("%Y-%m")
+        data = read_range(sid, f"{ym}!A1:J200")
+        total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
 
-    day_of_month = datetime.now().day
-    days_left = 30 - day_of_month
-    saldo = income - total
-    limite_diario = saldo / max(days_left, 1)
+        day_of_month = datetime.now().day
+        days_left = 30 - day_of_month
+        saldo = income - total
+        limite_diario = saldo / max(days_left, 1)
 
-    await update.message.reply_text(
-        f"💸 *Controle Financeiro*\n\n"
-        f"📥 Receita: R$ {income:,.2f}\n"
-        f"📤 Gastos: R$ {total:,.2f}\n"
-        f"💰 Saldo: R$ {saldo:,.2f}\n"
-        f"📅 Dias restantes: {days_left}\n"
-        f"🎯 Limite diário: R$ {limite_diario:,.2f}",
-        parse_mode="Markdown"
-    )
+        await update.message.reply_text(
+            f"💸 *Controle Financeiro*\n\n"
+            f"📥 Receita: R$ {income:,.2f}\n"
+            f"📤 Gastos: R$ {total:,.2f}\n"
+            f"💰 Saldo: R$ {saldo:,.2f}\n"
+            f"📅 Dias restantes: {days_left}\n"
+            f"🎯 Limite diário: R$ {limite_diario:,.2f}",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Erro cmd_limite: {e}")
+        await update.message.reply_text("❌ Erro ao calcular limite. Verifique a planilha.")
 
 async def cmd_novomes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ensure_user(update): return
