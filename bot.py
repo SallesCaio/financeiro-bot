@@ -143,7 +143,7 @@ def set_notification_state(user_id: int, notif_type: str, last_value: str):
         conn.commit()
 
 # ═══════════════════════════════════════════════════════
-# GOOGLE SHEETS
+# GOOGLE SHEETS / DRIVE
 # ═══════════════════════════════════════════════════════
 def get_sheets_service():
     token_path = Path(__file__).parent / "google_token.json"
@@ -156,15 +156,26 @@ def get_sheets_service():
                         client_secret=d["client_secret"], scopes=d["scopes"])
     return build("sheets", "v4", credentials=creds)
 
+def get_drive_service():
+    token_path = Path(__file__).parent / "google_token.json"
+    if not token_path.exists():
+        token_path = Path.home() / "AppData" / "Local" / "hermes" / "google_token.json"
+    with open(token_path) as f:
+        d = json.load(f)
+    creds = Credentials(token=d["token"], refresh_token=d["refresh_token"],
+                        token_uri=d["token_uri"], client_id=d["client_id"],
+                        client_secret=d["client_secret"], scopes=d["scopes"])
+    return build("drive", "v3", credentials=creds)
+
 def create_user_spreadsheet(user_name: str) -> str:
-    """Copia o template e retorna o ID da nova planilha."""
-    svc = get_sheets_service()
-    # Copy template
-    copy = svc.spreadsheets().copy(
-        spreadsheetId=TEMPLATE_SPREADSHEET_ID,
+    """Copia o template via Drive API e retorna o ID da nova planilha."""
+    drive_svc = get_drive_service()
+    # Copy template using Drive API
+    copy = drive_svc.files().copy(
+        fileId=TEMPLATE_SPREADSHEET_ID,
         body={"name": f"FinBot - {user_name}"}
     ).execute()
-    new_id = copy["spreadsheetId"]
+    new_id = copy["id"]
     return new_id
 
 def get_or_create_month_sheet(spreadsheet_id: str, year_month: str) -> str:
