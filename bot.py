@@ -613,11 +613,16 @@ async def cmd_limite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"/limite chamado por user {update.effective_user.id}")
     try:
         user = get_user(update.effective_user.id)
+        logger.info(f"User encontrado: {user['name']}, income={user['income']}")
         income = user["income"]
         sid = user["spreadsheet_id"]
+        logger.info(f"Spreadsheet ID: {sid}")
         ym = datetime.now().strftime("%Y-%m")
+        logger.info(f"Lendo aba {ym}")
         data = read_range(sid, f"{ym}!A1:J200")
+        logger.info(f"Dados lidos: {len(data)} linhas")
         total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
+        logger.info(f"Total calculado: {total}")
 
         day_of_month = datetime.now().day
         days_left = 30 - day_of_month
@@ -634,8 +639,8 @@ async def cmd_limite(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     except Exception as e:
-        logger.error(f"Erro cmd_limite: {e}")
-        await update.message.reply_text("❌ Erro ao calcular limite. Verifique a planilha.")
+        logger.error(f"Erro cmd_limite: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Erro ao calcular limite: {str(e)[:200]}")
 
 async def cmd_novomes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ensure_user(update): return
