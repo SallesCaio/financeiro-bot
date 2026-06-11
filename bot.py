@@ -347,9 +347,12 @@ async def onboarding_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Erro no onboarding_goal para user {user_id}: {e}", exc_info=True)
+        # Escape Markdown special chars
+        err_msg = str(e)[:200].replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]").replace("(", "\\(").replace(")", "\\)").replace("~", "\\~").replace(">", "\\>").replace("#", "\\#").replace("+", "\\+").replace("-", "\\-").replace("=", "\\=").replace("|", "\\|").replace("{", "\\{").replace("}", "\\}").replace(".", "\\.").replace("!", "\\!")
         await update.message.reply_text(
-            f"❌ Erro ao finalizar cadastro: {str(e)[:200]}\n"
-            f"Tente /start novamente."
+            f"❌ Erro ao finalizar cadastro: {err_msg}\n"
+            f"Tente /start novamente.",
+            parse_mode="Markdown"
         )
         return ConversationHandler.END
 
