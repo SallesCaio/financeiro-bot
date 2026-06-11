@@ -19,12 +19,13 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters
 )
 
-# ═══════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TEMPLATE_SPREADSHEET_ID = os.environ.get("TEMPLATE_SPREADSHEET_ID", "1m-GTVEJcqzzEBoslIJ5OpeSPj1HJnd3U-6m3JCH_uv8")
 DB_PATH = Path(__file__).parent / "finbot.db"
+RENDER_DB_PATH = Path("/tmp/finbot.db")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("FinBot")
@@ -33,6 +34,12 @@ logger = logging.getLogger("FinBot")
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception: {context.error}", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Ocorreu um erro. Tente novamente ou use /start."
+            )
+        except Exception:
+            pass
         try:
             await update.effective_message.reply_text(
                 "⚠️ Ocorreu um erro. Tente novamente ou use /start."
@@ -60,8 +67,15 @@ PAYMENT_METHODS = {"pix": "💵 Pix", "credito": "💳 Crédito",
 # ═══════════════════════════════════════════════════════
 # DATABASE
 # ═══════════════════════════════════════════════════════
+def get_db_path():
+    """Retorna path do DB - usa /tmp no Render (volátil) mas persiste no arquivo local"""
+    if RENDER_DB_PATH.exists():
+        return RENDER_DB_PATH
+    return DB_PATH
+
 def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
+    path = get_db_path()
+    with sqlite3.connect(path) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
@@ -106,7 +120,8 @@ def init_db():
         conn.commit()
 
 def get_user(user_id: int) -> Optional[dict]:
-    with sqlite3.connect(DB_PATH) as conn:
+    path = get_db_path()
+    with sqlite3.connect(path) as conn:
         row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         if not row:
             return None
@@ -114,7 +129,8 @@ def get_user(user_id: int) -> Optional[dict]:
         return dict(zip(cols, row))
 
 def upsert_user(user_id: int, **kwargs):
-    with sqlite3.connect(DB_PATH) as conn:
+    path = get_db_path()
+    with sqlite3.connect(path) as conn:
         existing = conn.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone()
         if existing:
             sets = ", ".join(f"{k}=?" for k in kwargs)
@@ -126,7 +142,8 @@ def upsert_user(user_id: int, **kwargs):
         conn.commit()
 
 def get_notification_state(user_id: int, notif_type: str) -> Optional[dict]:
-    with sqlite3.connect(DB_PATH) as conn:
+    path = get_db_path()
+    with sqlite3.connect(path) as conn:
         row = conn.execute(
             "SELECT * FROM notification_state WHERE user_id=? AND notif_type=?",
             (user_id, notif_type)
@@ -136,7 +153,8 @@ def get_notification_state(user_id: int, notif_type: str) -> Optional[dict]:
         return {"user_id": row[0], "notif_type": row[1], "last_sent": row[2], "last_value": row[3]}
 
 def set_notification_state(user_id: int, notif_type: str, last_value: str):
-    with sqlite3.connect(DB_PATH) as conn:
+    path = get_db_path()
+    with sqlite3.connect(path) as conn:
         conn.execute(
             "INSERT OR REPLACE INTO notification_state VALUES (?,?,?,?)",
             (user_id, notif_type, datetime.now().isoformat(), last_value)
@@ -1085,20 +1103,36 @@ def main():
         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
 
-    app.add_handler(onboarding_conv)
-    app.add_handler(gasto_conv)
     app.add_handler(CommandHandler("g", gasto_quick))
+    app.add_handler(CommandHandler("fatura", cmd_fatura))
+    app.add_handler(CommandHandler("pagar_fatura", cmd_pagar_fatura))
     app.add_handler(CommandHandler("resumo", cmd_resumo))
     app.add_handler(CommandHandler("fixos", cmd_fixos))
     app.add_handler(CommandHandler("parcelas", cmd_parcelas))
     app.add_handler(CommandHandler("limite", cmd_limite))
     app.add_handler(CommandHandler("novomes", cmd_novomes))
-    app.add_handler(CommandHandler("fatura", cmd_fatura))
-    app.add_handler(CommandHandler("pagar_fatura", cmd_pagar_fatura))
+    app.add_handler(onboarding_conv)
+    app.add_handler(gasto_conv)
     app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_"))
 
     # Error handler
     app.add_error_handler(error_handler)
+
+    # Set bot commands for Telegram menu
+    async def post_init(application):
+        await application.bot.set_my_commands([
+            ("start", "Iniciar/Reiniciar o bot"),
+            ("gasto", "Registrar gasto (guiado)"),
+            ("g", "Gasto rápido: /g 50 mercado alimentação pix"),
+            ("fatura", "Ver faturas em aberto"),
+            ("pagar_fatura", "Pagar fatura: /pagar_fatura Nubank 2026-06 1000"),
+            ("resumo", "Resumo financeiro do mês"),
+            ("limite", "Limite diário disponível"),
+            ("novomes", "Criar aba do mês atual"),
+            ("fixos", "Ver gastos fixos"),
+            ("parcelas", "Ver parcelamentos"),
+        ])
+    app.post_init = post_init
     import threading
     from http.server import HTTPServer, BaseHTTPRequestHandler
     port = int(os.environ.get("PORT", 8080))
