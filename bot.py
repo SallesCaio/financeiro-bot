@@ -299,33 +299,48 @@ async def onboarding_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or ""
     first_name = update.effective_user.first_name or ""
 
-    # Criar planilha pessoal
-    spreadsheet_id = create_user_spreadsheet(data["name"])
+    try:
+        # Criar planilha pessoal
+        logger.info(f"Onboarding: criando planilha para {data['name']}")
+        spreadsheet_id = create_user_spreadsheet(data["name"])
+        logger.info(f"Planilha criada: {spreadsheet_id}")
 
-    # Salvar no DB
-    upsert_user(
-        user_id,
-        username=username, first_name=first_name,
-        name=data["name"], income=data["income"],
-        cards=data["cards"], goal=data["goal"],
-        spreadsheet_id=spreadsheet_id,
-        onboarding_done=1
-    )
+        # Salvar no DB
+        logger.info(f"Onboarding: salvando usuário {user_id} no DB")
+        upsert_user(
+            user_id,
+            username=username, first_name=first_name,
+            name=data["name"], income=data["income"],
+            cards=data["cards"], goal=data["goal"],
+            spreadsheet_id=spreadsheet_id,
+            onboarding_done=1
+        )
+        logger.info(f"Onboarding: usuário salvo no DB")
 
-    # Criar aba do mês atual
-    ym = datetime.now().strftime("%Y-%m")
-    get_or_create_month_sheet(spreadsheet_id, ym)
+        # Criar aba do mês atual
+        ym = datetime.now().strftime("%Y-%m")
+        logger.info(f"Onboarding: criando aba {ym}")
+        get_or_create_month_sheet(spreadsheet_id, ym)
+        logger.info(f"Onboarding: aba {ym} criada")
 
-    await update.message.reply_text(
-        f"✅ *Perfil criado, {data['name']}!*\n\n"
-        f"💰 Renda mensal: R$ {data['income']:,.2f}\n"
-        f"💳 Cartões: {data['cards']}\n"
-        f"🎯 Objetivo: {data['goal']}\n\n"
-        f"📊 Sua planilha:\nhttps://docs.google.com/spreadsheets/d/{spreadsheet_id}\n\n"
-        f"Use */gasto* para registrar despesas ou */g 50 mercado alimentação pix* para modo rápido!",
-        parse_mode="Markdown"
-    )
-    return ConversationHandler.END
+        await update.message.reply_text(
+            f"✅ *Perfil criado, {data['name']}!*\n\n"
+            f"💰 Renda mensal: R$ {data['income']:,.2f}\n"
+            f"💳 Cartões: {data['cards']}\n"
+            f"🎯 Objetivo: {data['goal']}\n\n"
+            f"📊 Sua planilha:\nhttps://docs.google.com/spreadsheets/d/{spreadsheet_id}\n\n"
+            f"Use */gasto* para registrar despesas ou */g 50 mercado alimentação pix* para modo rápido!",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Erro no onboarding_goal para user {user_id}: {e}", exc_info=True)
+        await update.message.reply_text(
+            f"❌ Erro ao finalizar cadastro: {str(e)[:200]}\n"
+            f"Tente /start novamente."
+        )
+        return ConversationHandler.END
 
 # ═══════════════════════════════════════════════════════
 # CONVERSATIONAL GASTO
