@@ -7,6 +7,7 @@ import os, json, sqlite3, logging, re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+import calendar
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -527,6 +528,49 @@ async def salvar_gasto(update: Update, context, obs: str):
     ]
     append_gasto(sid, ym, row)
 
+    # If credit card expense, update/fatüra fatura
+    if g["payment"] == "credito":
+        try:
+            ref_month = ym
+            cartao = g.get("card", "").upper()
+            if cartao:
+                ensure_fatura_sheet(sid)
+                existing = get_fatura_row(sid, cartao, ref_month)
+                amount = g["amount"]
+                if existing:
+                    row_idx, row = existing
+                    current_total = float(row[2]) if len(row) > 2 and row[2] else 0.0
+                    new_total = current_total + amount
+                    update_fatura_cell(sid, row_idx, "C", f"{new_total:.2f}")
+                    due_date = row[3] if len(row) > 3 and row[3] else ""
+                    if not due_date:
+                        y, m = map(int, ref_month.split("-"))
+                        if m == 12:
+                            next_m = 1
+                            next_y = y + 1
+                        else:
+                            next_m = m + 1
+                            next_y = y
+                        import calendar
+                        last_day = calendar.monthrange(next_y, next_m)[1]
+                        due_date = f"{last_day:02d}/{next_m:02d}/{next_y}"
+                        update_fatura_cell(sid, row_idx, "D", due_date)
+                else:
+                    y, m = map(int, ref_month.split("-"))
+                    if m == 12:
+                        next_m = 1
+                        next_y = y + 1
+                    else:
+                        next_m = m + 1
+                        next_y = y
+                    import calendar
+                    last_day = calendar.monthrange(next_y, next_m)[1]
+                    due_date = f"{last_day:02d}/{next_m:02d}/{next_y}"
+                    new_row = [cartao, ref_month, f"{amount:.2f}", due_date, "NAO", "0.00", "", ""]
+                    append_fatura_row(sid, new_row)
+        except Exception as e:
+            logger.error(f"Erro ao atualizar fatura: {e}")
+
     # Atualizar streak
     today = datetime.now().strftime("%Y-%m-%d")
     last = user.get("last_gasto_date", "")
@@ -902,10 +946,150 @@ def main():
     app.add_handler(CommandHandler("parcelas", cmd_parcelas))
     app.add_handler(CommandHandler("limite", cmd_limite))
     app.add_handler(CommandHandler("novomes", cmd_novomes))
+    app.add_handler(CommandHandler("fatura", cmd_fatura))
+    app.add_handler(CommandHandler("pagar_fatura", cmd_pagar_fatura))
     app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_"))
 
     # Error handler
-    app.add_error_handler(error_handler)
+    # ═══════════════════════════════════════════════════════
+    # FATURA HANDLING
+    # ═══════════════════════════════════════════════════════
+    def get_fatura_service():
+        # Reuse sheets service
+        return get_sheets_service()
+
+    def ensure_fatura_sheet(spreadsheet_id: str):
+        svc = get_fatura_service()
+        meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        sheets = meta.get("sheets", [])
+        if any(s["properties"]["title"] == "FATURAS" for s in sheets):
+            return
+        # Add sheet
+        request = {
+            "addSheet": {
+                "properties": {
+                    "title": "FATURAS",
+                    "gridProperties": {
+                        "rowCount": 1000,
+                        "columnCount": 8
+                    }
+                }
+            }
+        }
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={"requests": [request]}
+        ).execute()
+        # Add headers
+        headers = [["CARTÃO", "REF_MÊS", "TOTAL", "VENCIMENTO", "PAGO", "VALOR_PAGO", "DATA_PAGAMENTO", "OBS"]]
+        svc.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range="FATURAS!A1:H1",
+            valueInputOption="USER_ENTERED",
+            body={"values": headers}
+        ).execute()
+
+    def get_fatura_row(spreadsheet_id: str, cartao: str, ref_month: str):
+        svc = get_fatura_service()
+        # Ensure sheet exists
+        ensure_fatura_sheet(spreadsheet_id)
+        # Get all rows
+        result = svc.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range="FATURAS!A:H"
+        ).execute()
+        values = result.get("values", [])
+        if not values:
+            return None
+        # Skip header
+        for idx, row in enumerate(values[1:], start=2):  # row index in sheet (1-based)
+            if len(row) >= 2 and row[0] == cartao and row[1] == ref_month:
+                return idx, row
+        return None
+
+    def update_fatura_cell(spreadsheet_id: str, row_idx: int, col_letter: str, value):
+        svc = get_fatura_service()
+        svc.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"FATURAS!{col_letter}{row_idx}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [[value]]}
+        ).execute()
+
+    def append_fatura_row(spreadsheet_id: str, row: list):
+        svc = get_fatura_service()
+        ensure_fatura_sheet(spreadsheet_id)
+        svc.spreadsheets().values().append(
+            spreadsheetId=spreadsheet_id,
+            range="FATURAS!A:H",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": [row]}
+        ).execute()
+
+    async def cmd_fatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not ensure_user(update): return
+        user = get_user(update.effective_user.id)
+        sid = user["spreadsheet_id"]
+        svc = get_fatura_service()
+        ensure_fatura_sheet(sid)
+        result = svc.spreadsheets().values().get(
+            spreadsheetId=sid,
+            range="FATURAS!A:H"
+        ).execute()
+        values = result.get("values", [])
+        if not values or len(values) == 1:
+            await update.message.reply_text("📄 Nenhuma fatura registrada.")
+            return
+        # Skip header
+        rows = values[1:]
+        open_rows = [r for r in rows if len(r) >= 5 and r[4].upper() != "SIM"]
+        if not open_rows:
+            await update.message.reply_text("✅ Todas as faturas estão pagas.")
+            return
+        lines = ["📄 *Faturas em aberto*\n"]
+        for r in open_rows:
+            cartao = r[0] if len(r) > 0 else ""
+            ref = r[1] if len(r) > 1 else ""
+            total = r[2] if len(r) > 2 else "0"
+            venc = r[3] if len(r) > 3 else ""
+            lines.append(f"• {cartao} ({ref}): R$ {total} – Venc: {venc}")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    async def cmd_pagar_fatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not ensure_user(update): return
+        args = context.args
+        if len(args) < 3:
+            await update.message.reply_text(
+                "❌ Uso: /pagar_fatura <cartão> <ref_mês> <valor>\n"
+                "Ex: /pagar_fatura Nubank 2026-06 1234,56"
+            )
+            return
+        cartao = args[0]
+        ref_month = args[1]
+        try:
+            valor = float(args[2].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Valor inválido.")
+            return
+        user = get_user(update.effective_user.id)
+        sid = user["spreadsheet_id"]
+        svc = get_fatura_service()
+        ensure_fatura_sheet(sid)
+        res = get_fatura_row(sid, cartao, ref_month)
+        if not res:
+            await update.message.reply_text(f"❌ Fatura não encontrada para {cartao} / {ref_month}.")
+            return
+        row_idx, row = res
+        # Mark as paid
+        update_fatura_cell(sid, row_idx, "E", "SIM")  # PAGO column (5th column = E)
+        update_fatura_cell(sid, row_idx, "F", f"{valor:.2f}")  # VALOR_PAGO
+        update_fatura_cell(sid, row_idx, "G", datetime.now().strftime("%d/%m/%Y"))  # DATA_PAGAMENTO
+        await update.message.reply_text(
+            f"✅ Fatura de {cartao} ({ref_month}) paga no valor de R$ {valor:,.2f}."
+        )
+
+    # Error handler
 
     # Start HTTP server in background thread for Render health check
     import threading
