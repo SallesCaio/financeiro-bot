@@ -3,7 +3,7 @@
 FinBot — Gestão Financeira via Telegram + Google Sheets
 Multi-user, onboarding conversacional, SQLite, notificações.
 """
-import os, json, sqlite3, logging, re
+import os, json, sqlite3, logging, re, secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -18,10 +18,14 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, ConversationHandler,
     CallbackQueryHandler, ContextTypes, filters
 )
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
+import uvicorn
 
 # ════════════════════════════════════════════════════════
 # CONFIG
-# ═══════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TEMPLATE_SPREADSHEET_ID = os.environ.get("TEMPLATE_SPREADSHEET_ID", "1m-GTVEJcqzzEBoslIJ5OpeSPj1HJnd3U-6m3JCH_uv8")
 DB_PATH = Path(__file__).parent / "finbot.db"
@@ -30,16 +34,123 @@ RENDER_DB_PATH = Path("/tmp/finbot.db")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("FinBot")
 
+# ═════════════════════════════════════════════════════════
+# FASTAPI - Web App API
+# ════════════════════════════════════════════════════════
+class RegisterRequest(BaseModel):
+    nome: str
+    email: EmailStr
+    renda: float
+    objetivo: str
+    cartoes: str = ""
+
+class RegisterResponse(BaseModel):
+    success: bool
+    token: str
+    message: str
+
+class StartTokenRequest(BaseModel):
+    token: str
+
+# FastAPI app
+fastapi_app = FastAPI(title="FinBot API", version="1.0.0")
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@fastapi_app.post("/api/register", response_model=RegisterResponse)
+async def api_register(request: RegisterRequest):
+    """Registra novo usuário via Web App e retorna token para vincular no Telegram"""
+    try:
+        # Verifica se email já existe
+        path = get_db_path()
+        with sqlite3.connect(path) as conn:
+            existing = conn.execute(
+                "SELECT user_id FROM users WHERE email=?", (request.email,)
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+        
+        # Gera token único
+        token = secrets.token_urlsafe(16)
+        
+        # Cria planilha no Google Sheets
+        spreadsheet_id = create_user_spreadsheet(request.nome)
+        
+        # Cria aba do mês atual
+        ym = datetime.now().strftime("%Y-%m")
+        get_or_create_month_sheet(spreadsheet_id, ym)
+        
+        # Salva usuário no DB com token pendente
+        user_id = secrets.randbelow(1000000000)  # Temporary ID, will be replaced by Telegram ID
+        
+        path = get_db_path()
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                """INSERT INTO users (user_id, username, first_name, name, email, income, cards, goal, spreadsheet_id, onboarding_done, pending_token, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    user_id, "", "", request.nome, request.email, request.renda,
+                    request.cartoes, request.objetivo, spreadsheet_id, 0, token,
+                    datetime.now().isoformat()
+                )
+            )
+            conn.commit()
+        
+        # Cria aba do mês na planilha
+        get_or_create_month_sheet(spreadsheet_id, datetime.now().strftime("%Y-%m"))
+        
+        return RegisterResponse(
+            success=True,
+            token=token,
+            message="Cadastro realizado! Copie o token e use /start SEU_TOKEN no Telegram."
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro no registro: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@fastapi_app.post("/api/validate-token")
+async def api_validate_token(request: StartTokenRequest):
+    """Valida token do Web App e retorna spreadsheet_id para o bot"""
+    path = get_db_path()
+    with sqlite3.connect(path) as conn:
+        user = conn.execute(
+            "SELECT user_id, spreadsheet_id, name, income, cards, goal FROM users WHERE pending_token=?",
+            (request.token,)
+        ).fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="Token inválido ou expirado")
+        
+        user_id, spreadsheet_id, name, income, cards, goal = user
+        
+        # Remove token pendente (já foi usado)
+        conn.execute("UPDATE users SET pending_token=NULL, onboarding_done=1 WHERE user_id=?", (user_id,))
+        conn.commit()
+        
+        return {
+            "valid": True,
+            "user_id": user_id,
+            "spreadsheet_id": spreadsheet_id,
+            "name": name,
+            "income": income,
+            "cards": cards,
+            "goal": goal
+        }
+
+@fastapi_app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "service": "FinBot API"}
+
 # Error handler
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception: {context.error}", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
-        try:
-            await update.effective_message.reply_text(
-                "⚠️ Ocorreu um erro. Tente novamente ou use /start."
-            )
-        except Exception:
-            pass
         try:
             await update.effective_message.reply_text(
                 "⚠️ Ocorreu um erro. Tente novamente ou use /start."
@@ -83,6 +194,7 @@ def init_db():
                 username TEXT,
                 first_name TEXT,
                 name TEXT,
+                email TEXT,
                 income REAL,
                 cards TEXT,
                 goal TEXT,
@@ -91,7 +203,8 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 streak INTEGER DEFAULT 0,
                 last_gasto_date TEXT,
-                level TEXT DEFAULT 'bronze'
+                level TEXT DEFAULT 'bronze',
+                pending_token TEXT
             );
             CREATE TABLE IF NOT EXISTS notification_state (
                 user_id INTEGER,
@@ -256,11 +369,89 @@ def yes_no_keyboard(prefix: str):
          InlineKeyboardButton("❌ Não", callback_data=f"{prefix}_nao")]
     ])
 
-# ═══════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════
+# TOKEN HANDLING - Handle /start TOKEN from Web App
+# ════════════════════════════════════════════════════════
+async def handle_start_token(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
+    """Handle /start TOKEN from Web App registration"""
+    user_id = update.effective_user.id
+    username = update.effective_user.username or ""
+    first_name = update.effective_user.first_name or ""
+    
+    try:
+        # Validate token via internal API
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://localhost:8000/api/validate-token",
+                json={"token": token},
+                timeout=10.0
+            )
+            
+            if response.status_code != 200:
+                await update.message.reply_text(
+                    "❌ Token inválido ou expirado. Faça o cadastro novamente no site."
+                )
+                return
+            
+            data = response.json()
+            if not data.get("valid"):
+                await update.message.reply_text(
+                    "❌ Token inválido ou expirado. Faça o cadastro novamente no site."
+                )
+                return
+            
+            # Update user in DB with Telegram info
+            path = get_db_path()
+            with sqlite3.connect(path) as conn:
+                conn.execute(
+                    """UPDATE users SET 
+                        user_id=?, username=?, first_name=?, onboarding_done=1, pending_token=NULL
+                        WHERE pending_token=?""",
+                    (user_id, username, first_name, token)
+                )
+                conn.commit()
+            
+            # Get updated user
+            user = get_user(user_id)
+            
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💸 Registrar gasto", callback_data="menu_gasto"),
+                 InlineKeyboardButton("📊 Resumo", callback_data="menu_resumo")],
+                [InlineKeyboardButton("📌 Fixos", callback_data="menu_fixos"),
+                 InlineKeyboardButton("📅 Parcelas", callback_data="menu_parcelas")],
+                [InlineKeyboardButton("🔍 Buscar", callback_data="menu_busca"),
+                 InlineKeyboardButton("📄 Relatório", callback_data="menu_relatorio")],
+            ])
+            
+            await update.message.reply_text(
+                f"✅ *Conta vinculada com sucesso, {data['name']}!*\n\n"
+                f"💰 Renda: R$ {data['income']:,.2f}\n"
+                f"💳 Cartões: {data['cards']}\n"
+                f"🎯 Objetivo: {data['goal']}\n\n"
+                f"📊 Sua planilha:\nhttps://docs.google.com/spreadsheets/d/{data['spreadsheet_id']}\n\n"
+                "Agora você pode usar todos os comandos do FinBot!",
+                parse_mode="Markdown", reply_markup=keyboard
+            )
+            
+    except Exception as e:
+        logger.error(f"Erro ao validar token: {e}")
+        await update.message.reply_text(
+            "❌ Erro ao processar token. Tente fazer o cadastro novamente."
+        )
+
+# ═════════════════════════════════════════════════════════
 # ONBOARDING
-# ═══════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    
+    # Check if /start was called with a token (from Web App)
+    if context.args and len(context.args) > 0:
+        token = context.args[0]
+        await handle_start_token(update, context, token)
+        return ConversationHandler.END
+
     user = get_user(user_id)
 
     if user and user.get("onboarding_done"):

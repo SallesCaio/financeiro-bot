@@ -1,0 +1,194 @@
+        .footer-note {
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 12px;
+            margin-top: 30px;
+        }
+        .error-msg {
+            background: rgba(255,68,68,0.2);
+            border: 1px solid rgba(255,68,68,0.5);
+            color: #ff4444;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .error-msg.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <div class="logo-icon">🤖</div>
+            <h1>FinBot</h1>
+            <p>Seu assistente financeiro inteligente</p>
+        </div>
+
+        <div id="error-msg" class="error-msg"></div>
+
+        <!-- Tela de Cadastro -->
+        <form id="register-form">
+            <div class="form-group">
+                <label for="nome">Nome completo</label>
+                <input type="text" id="nome" name="nome" placeholder="Ex: Caio Silva" required autocomplete="name">
+            </div>
+
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input type="email" id="email" name="email" placeholder="seu@email.com" required autocomplete="email">
+            </div>
+
+            <div class="row">
+                <div class="form-group">
+                    <label for="renda">Renda mensal (R$)</label>
+                    <input type="number" id="renda" name="renda" placeholder="3000" step="0.01" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label for="objetivo">Objetivo principal</label>
+                    <select id="objetivo" name="objetivo" required>
+                        <option value="">Selecione...</option>
+                        <option value="quitar_dividas">Quitar dívidas</option>
+                        <option value="economizar">Economizar / Reservas</option>
+                        <option value="sair_vermelho">Sair do vermelho</option>
+                        <option value="controlar">Controlar gastos</option>
+                        <option value="investir">Começar a investir</option>
+                        <option value="outro">Outro</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="cartoes">Cartões de crédito (separados por vírgula)</label>
+                <input type="text" id="cartoes" name="cartoes" placeholder="Nubank, Itaú, C6" autocomplete="off">
+            </div>
+
+            <button type="submit" class="btn" id="submit-btn">
+                <span id="btn-text">Cadastrar</span>
+                <span id="btn-loading" style="display:none;">⏳ Cadastrando...</span>
+            </button>
+        </form>
+
+        <!-- Tela de Sucesso -->
+        <div id="success-screen" class="success-screen">
+            <div class="success-icon">✅</div>
+            <h2>Cadastro realizado!</h2>
+            <p>Seu código de acesso foi gerado. Copie e cole no Telegram para vincular sua conta.</p>
+            <div class="code-box" id="code-box">-----</div>
+            <button class="copy-btn" id="copy-btn">📋 Copiar código</button>
+            <p style="color: rgba(255,255,255,0.5); font-size: 13px; margin-top: 15px;">
+                Volte ao Telegram e envie: <code>/start SEU_CODIGO</code>
+            </p>
+            <button class="btn btn-secondary" onclick="location.reload()">Cadastrar outra conta</button>
+        </div>
+
+        <div class="footer-note">
+            Seus dados são criptografados e usados apenas para o FinBot.<br>
+            Não compartilhamos suas informações com terceiros.
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://financeiro-bot-q5yk.onrender.com/api';
+        // Para desenvolvimento local, descomente a linha abaixo:
+        // const API_BASE = 'http://localhost:8000/api';
+
+        const form = document.getElementById('register-form');
+        const successScreen = document.getElementById('success-screen');
+        const errorMsg = document.getElementById('error-msg');
+        const codeBox = document.getElementById('code-box');
+        const copyBtn = document.getElementById('copy-btn');
+        const submitBtn = document.getElementById('submit-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnLoading = document.getElementById('btn-loading');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const data = {
+                nome: document.getElementById('nome').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                renda: parseFloat(document.getElementById('renda').value),
+                objetivo: document.getElementById('objetivo').value,
+                cartoes: document.getElementById('cartoes').value.trim(),
+            };
+
+            // Validação básica
+            if (!data.nome || !data.email || isNaN(data.renda) || !data.objetivo) {
+                showError('Por favor, preencha todos os campos obrigatórios.');
+                return;
+            }
+
+            if (!data.email.includes('@')) {
+                showError('E-mail inválido.');
+                return;
+            }
+
+            // Loading state
+            submitBtn.disabled = true;
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+            hideError();
+
+            try {
+                const response = await fetch(`${API_BASE}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Erro ao cadastrar');
+                }
+
+                // Sucesso
+                form.style.display = 'none';
+                successScreen.classList.add('show');
+                codeBox.textContent = result.token;
+                
+                // Auto-copiar
+                await copyToClipboard(result.token);
+
+            } catch (err) {
+                showError(err.message);
+                submitBtn.disabled = false;
+                btnText.style.display = 'inline';
+                btnLoading.style.display = 'none';
+            }
+        });
+
+        copyBtn.addEventListener('click', async () => {
+            const code = codeBox.textContent;
+            await copyToClipboard(code);
+            copyBtn.textContent = '✅ Copiado!';
+            setTimeout(() => copyBtn.textContent = '📋 Copiar código', 2000);
+        });
+
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (err) {
+                // Fallback
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+        }
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('show');
+        }
+
+        function hideError() {
+            errorMsg.classList.remove('show');
+        }
+    </script>
+</body>
+</html>
