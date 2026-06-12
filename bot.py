@@ -54,42 +54,55 @@ PAYMENT_METHODS = {"pix": "💵 Pix", "credito": "💳 Crédito",
                    "debito": "🏧 Débito", "boleto": "📄 Boleto", "dinheiro": "💶 Dinheiro"}
 
 # ═══════════════════════════════════════════════════════
-# GOOGLE AUTH
+# GOOGLE AUTH (com cache global para economizar memória)
 # ═══════════════════════════════════════════════════════
+_sheets_service = None
+_drive_service = None
+_credentials_instance = None
+
 def _get_credentials():
+    global _credentials_instance
+    if _credentials_instance is not None:
+        return _credentials_instance
     """Carrega credenciais Google do token.json ou env vars."""
-    # Tenta arquivo local primeiro
     token_path = Path(__file__).parent / "google_token.json"
     if not token_path.exists():
         token_path = Path.home() / "AppData" / "Local" / "hermes" / "google_token.json"
     if token_path.exists():
         with open(token_path) as f:
             d = json.load(f)
-        return Credentials(
+        _credentials_instance = Credentials(
             token=d["token"], refresh_token=d["refresh_token"],
             token_uri=d["token_uri"], client_id=d["client_id"],
             client_secret=d["client_secret"], scopes=d["scopes"]
         )
-    # Fallback para env vars (Render)
-    token = os.environ.get("GOOGLE_TOKEN", "")
+        return _credentials_instance
     refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
     client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
     token_uri = os.environ.get("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
     scopes = os.environ.get("GOOGLE_SCOPES", "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file").split()
     if refresh_token and client_id and client_secret:
-        return Credentials(
+        token = os.environ.get("GOOGLE_TOKEN", "")
+        _credentials_instance = Credentials(
             token=token, refresh_token=refresh_token,
             token_uri=token_uri, client_id=client_id,
             client_secret=client_secret, scopes=scopes
         )
-    raise RuntimeError("Credenciais Google não encontradas. Configure GOOGLE_REFRESH_TOKEN, GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET.")
+        return _credentials_instance
+    raise RuntimeError("Credenciais Google não encontradas.")
 
 def get_sheets_service():
-    return build("sheets", "v4", credentials=_get_credentials())
+    global _sheets_service
+    if _sheets_service is None:
+        _sheets_service = build("sheets", "v4", credentials=_get_credentials())
+    return _sheets_service
 
 def get_drive_service():
-    return build("drive", "v3", credentials=_get_credentials())
+    global _drive_service
+    if _drive_service is None:
+        _drive_service = build("drive", "v3", credentials=_get_credentials())
+    return _drive_service
 
 # ═══════════════════════════════════════════════════════
 # DATABASE (SQLite — cache local)
@@ -775,6 +788,11 @@ async def gasto_necessary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gasto_obs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     obs = update.message.text if update.message.text != "/pular" else ""
     await salvar_gasto(update, context, obs)
+    return ConversationHandler.END
+
+async def gasto_obs_pular(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler para /pular no estado OBS — pula observação."""
+    await salvar_gasto(update, context, "")
     return ConversationHandler.END
 
 async def gasto_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1598,9 +1616,13 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_card_text)
             ],
             NECESSARY: [CallbackQueryHandler(gasto_necessary, pattern="^nec_")],
-            OBS: [MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_obs)],
+            OBS: [
+                CommandHandler("pular", gasto_obs_pular),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_obs)
+            ],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        conversation_timeout=300  # 5 min auto-cancel para limpar estados órfãos
     )
 
     # ── /fixo Conversational Handler ──
