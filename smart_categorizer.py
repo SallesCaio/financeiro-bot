@@ -4,6 +4,7 @@ FinBot Smart Categorizer — Categorização inteligente de gastos sem IA extern
 Usa heurísticas + matching de keywords + aprendizado com correções manuais.
 """
 import sqlite3
+import re
 from pathlib import Path
 
 # ════════════════════════════════════════════════════════
@@ -18,7 +19,7 @@ KEYWORDS = {
         "agua", "gasolina", "combustivel", "uber", "taxi", "onibus", "metro",
         "bilhete", "passagem", "transporte", "combustivel", "gas", "etanol",
         "ipva", "multa", "estacionamento", "pedagio", "lavagem", "oleo",
-        "pneu", "revisao", "moto", "motoca", "moto"
+        "pneu", "revisao"
     ],
     "mercado": [
         "mercado", "supermercado", "hipermercado", "atacado", "atacadao",
@@ -114,16 +115,29 @@ def categorizar_gasto(descricao):
     for categoria, keywords in KEYWORDS.items():
         score = 0
         for kw in keywords:
-            if kw.lower() in desc_lower:
-                score += 1
+            kw_lower = kw.lower()
+            if kw_lower in desc_lower:
+                # Matching exato (palavra completa) vale mais
+                if re.search(r'\b' + re.escape(kw_lower) + r'\b', desc_lower):
+                    score += 2
+                else:
+                    score += 1
         if score > 0:
             scores[categoria] = score
     
     if not scores:
         return "outros", 0.0
     
-    best_cat = max(scores, key=scores.get)
-    confidence = min(scores[best_cat] / 3, 1.0)  # Max 1.0
+    # Desempate: categoria mais específica (menos keywords) ganha
+    max_score = max(scores.values())
+    candidates = [cat for cat, s in scores.items() if s == max_score]
+    if len(candidates) > 1:
+        # Prioriza categorias mais específicas (menos keywords = mais preciso)
+        best_cat = min(candidates, key=lambda c: len(KEYWORDS[c]))
+    else:
+        best_cat = candidates[0]
+    
+    confidence = min(scores[best_cat] / 5, 1.0)
     return best_cat, confidence
 
 

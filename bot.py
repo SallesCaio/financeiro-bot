@@ -1208,6 +1208,7 @@ async def cmd_fixo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         obs = f" ({f['obs']})" if f.get("obs") else ""
         lines.append(f"• *{f['nome']}* — R$ {f['valor']:,.2f} — {dia}{obs}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("👇", reply_markup=main_menu_keyboard())
 
 # ═══════════════════════════════════════════════════════
 # /parcela — Parcelamentos
@@ -1296,6 +1297,7 @@ async def cmd_parcela_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"  R$ {p['valor_parcela']:,.2f}/mês | Restam {restantes}x = R$ {restante_valor:,.2f}")
     lines.append(f"\n💰 *Total restante: R$ {total_restante:,.2f}*")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("👇", reply_markup=main_menu_keyboard())
 
 # ═══════════════════════════════════════════════════════
 # /meta — Metas Financeiras
