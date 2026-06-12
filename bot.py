@@ -625,7 +625,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(user_id)
 
     if user and user.get("onboarding_done"):
-        level_icon, level_name = get_level_from_streak(user.get("streak", 0) or 0)
         await update.message.reply_text(
             f"👋 Olá, *{user['name']}*!\n"
             f"💰 Renda: R$ {user['income']:,.2f} | 🎯 {user['goal']}\n"
@@ -1529,8 +1528,6 @@ async def cmd_conquistas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Use /start primeiro."); return
     user = get_user(update.effective_user.id)
     achievements = get_achievements(update.effective_user.id)
-    level_icon, level_name = get_level_from_streak(user.get("streak", 0) or 0)
-
     ACHIEVEMENT_NAMES = {
         "streak_7": "🔥 Semana de Fogo — 7 dias de streak",
         "streak_30": "💪 Mês Financeiro — 30 dias de streak",
@@ -1540,7 +1537,6 @@ async def cmd_conquistas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [
         f"🏆 *Suas Conquistas*\n",
-        f"{level_icon} Nível: *{level_name}*",
         f"🔥 Streak: {user.get('streak',0)} dias",
         f"📝 Total de gastos: {user.get('gastos_count',0)}\n",
         "🔓 *Conquistas desbloqueadas:*"
@@ -2276,6 +2272,11 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_card_text)
             ],
             NECESSARY: [CallbackQueryHandler(gasto_necessary, pattern="^nec_")],
+            IS_SUBSCRIPTION: [CallbackQueryHandler(gasto_is_subscription, pattern="^sub_")],
+            SUBSCRIPTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_subscription_name)],
+            SUBSCRIPTION_VALOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_subscription_valor)],
+            IS_INSTALMENT: [CallbackQueryHandler(gasto_is_instalment, pattern="^inst_")],
+            INSTALMENT_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_instalment_qty)],
             OBS: [
                 CommandHandler("pular", gasto_obs_pular),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, gasto_obs)
