@@ -479,7 +479,7 @@ def read_parcelas(spreadsheet_id: str) -> list:
         if len(row) >= 4 and row[0]:
             items.append({
                 "nome": row[0], "total": parse_float(row[1]) if row[1] else 0,
-                "n_parcelas": int(row[2]) if row[2] else 1,
+                "n_parcelas": int(parse_float(row[2])) if row[2] else 1,
                 "valor_parcela": parse_float(row[3]) if row[3] else 0,
                 "categoria": row[4] if len(row)>4 else "outros",
                 "pagas": int(row[5]) if len(row)>5 and row[5] else 0,
@@ -1758,21 +1758,6 @@ def main():
         fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
     )
 
-    # ── /meta Conversational Handler ──
-    meta_conv = ConversationHandler(
-        # entry_points=[CommandHandler("meta", cmd_meta)],  # removed for simplicity
-        states={
-            META_NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, meta_nome)],
-            META_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, meta_target)],
-            META_CATEGORIA_META: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, meta_categoria),
-                CallbackQueryHandler(meta_categoria_callback, pattern="^cat_"),
-                CommandHandler("pular", meta_categoria)
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
-    )
-
     # ── Registrar HANDLERS (ordem importa!) ──
     # Comandos diretos (sem estado) primeiro
     app.add_handler(CommandHandler("g", gasto_quick))
@@ -1788,7 +1773,6 @@ def main():
     app.add_handler(CommandHandler("compras", cmd_compras))
 # ConversationHandlers depois
     app.add_handler(onboarding_conv)
-    # app.add_handler(meta_conv)  # removed for simplicity
     app.add_handler(parcela_conv)
     app.add_handler(fixo_conv)
     app.add_handler(gasto_conv)
