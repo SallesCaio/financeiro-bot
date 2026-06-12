@@ -2257,10 +2257,10 @@ async def post_init(application):
 def main():
     init_db()
     
-    # Iniciar dashboard em thread separada na porta 8888
+    # Iniciar dashboard em thread separada na porta 8888 (não-bloqueante)
     try:
         from dashboard import start_dashboard
-        start_dashboard()
+        start_dashboard(blocking=False)
         logger.info("📊 Dashboard iniciado na porta 8888")
     except Exception as e:
         logger.warning(f"Dashboard não iniciado: {e}")
