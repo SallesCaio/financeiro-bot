@@ -60,6 +60,19 @@ _sheets_service = None
 _drive_service = None
 _credentials_instance = None
 
+
+# ═══════════════════════════════════════════════════════
+# HELPER: converte valor da planilha para float
+# ═══════════════════════════════════════════════════════
+def parse_float(val) -> float:
+    """Converte valor da planilha para float, suportando vírgula brasileira."""
+    if val is None:
+        return 0.0
+    try:
+        return float(str(val).replace(",", ".").replace("R$", "").strip())
+    except (ValueError, TypeError):
+        return 0.0
+
 def _get_credentials():
     global _credentials_instance
     if _credentials_instance is not None:
@@ -149,6 +162,13 @@ def init_db():
                 category TEXT,
                 monthly INTEGER DEFAULT 0,
                 active INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS compras (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                item TEXT NOT NULL,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                comprado INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS achievements (
                 user_id INTEGER,
@@ -264,7 +284,7 @@ def sync_users_from_master():
                         username=row[1] if len(row)>1 else "",
                         first_name=row[2] if len(row)>2 else "",
                         name=row[3] if len(row)>3 else "",
-                        income=float(row[4]) if row[4] else 0,
+                        income=parse_float(row[4]) if row[4] else 0,
                         cards=row[5] if len(row)>5 else "",
                         goal=row[6] if len(row)>6 else "",
                         spreadsheet_id=row[7] if len(row)>7 else "",
@@ -416,7 +436,7 @@ def read_fixos(spreadsheet_id: str) -> list:
     for row in rows[1:]:
         if len(row) >= 4 and row[0]:
             items.append({
-                "nome": row[0], "valor": float(row[1]) if row[1] else 0,
+                "nome": row[0], "valor": parse_float(row[1]) if row[1] else 0,
                 "dia": row[2] if len(row)>2 else "", "categoria": row[3] if len(row)>3 else "outros",
                 "ativo": row[4].upper()=="SIM" if len(row)>4 else True,
                 "obs": row[5] if len(row)>5 else ""
@@ -458,9 +478,9 @@ def read_parcelas(spreadsheet_id: str) -> list:
     for row in rows[1:]:
         if len(row) >= 4 and row[0]:
             items.append({
-                "nome": row[0], "total": float(row[1]) if row[1] else 0,
+                "nome": row[0], "total": parse_float(row[1]) if row[1] else 0,
                 "n_parcelas": int(row[2]) if row[2] else 1,
-                "valor_parcela": float(row[3]) if row[3] else 0,
+                "valor_parcela": parse_float(row[3]) if row[3] else 0,
                 "categoria": row[4] if len(row)>4 else "outros",
                 "pagas": int(row[5]) if len(row)>5 and row[5] else 0,
                 "prox_vencimento": row[6] if len(row)>6 else "",
@@ -510,8 +530,8 @@ def read_metas(spreadsheet_id: str) -> list:
     for row in rows[1:]:
         if len(row) >= 2 and row[0]:
             items.append({
-                "nome": row[0], "meta": float(row[1]) if row[1] else 0,
-                "atual": float(row[2]) if len(row)>2 and row[2] else 0,
+                "nome": row[0], "meta": parse_float(row[1]) if row[1] else 0,
+                "atual": parse_float(row[2]) if len(row)>2 and row[2] else 0,
                 "categoria": row[3] if len(row)>3 else "",
                 "mensal": row[4].upper()=="SIM" if len(row)>4 else False,
                 "ativo": row[5].upper()=="SIM" if len(row)>5 else True
@@ -557,10 +577,9 @@ def main_menu_keyboard():
          InlineKeyboardButton("📊 Resumo", callback_data="menu_resumo")],
         [InlineKeyboardButton("📌 Fixos", callback_data="menu_fixos"),
          InlineKeyboardButton("📅 Parcelas", callback_data="menu_parcelas")],
-        [InlineKeyboardButton("🎯 Metas", callback_data="menu_metas"),
-         InlineKeyboardButton("🔍 Buscar", callback_data="menu_busca")],
         [InlineKeyboardButton("📄 Relatório", callback_data="menu_relatorio"),
-         InlineKeyboardButton("🏆 Conquistas", callback_data="menu_conquistas")],
+         InlineKeyboardButton("🛒 Compras", callback_data="menu_compras")],
+        [InlineKeyboardButton("🔍 Buscar", callback_data="menu_busca")],
     ])
 
 # ═══════════════════════════════════════════════════════
@@ -676,7 +695,7 @@ async def onboarding_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎯 Objetivo: {data['goal']}\n\n"
             f"📊 Sua planilha:\nhttps://docs.google.com/spreadsheets/d/{spreadsheet_id}\n\n"
             "Use */gasto* para registrar despesas ou */g 50 mercado alimentação pix* para modo rápido!\n"
-            "Comandos novos: */fixo*, */parcela*, */meta*, */busca*, */relatorio*",
+            "Comandos: */gasto*, */g*, */fixo*, */parcela*, */compras*, */busca*, */relatorio*",
             parse_mode="Markdown", reply_markup=main_menu_keyboard()
         )
         return ConversationHandler.END
@@ -855,7 +874,7 @@ async def salvar_gasto(update: Update, context, obs: str):
                 existing = get_fatura_row(sid, cartao, ref_month)
                 if existing:
                     row_idx, row_data = existing
-                    cur = float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
+                    cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
                     update_fatura_cell(sid, row_idx, "C", f"{cur + g['amount']:.2f}")
                 else:
                     y, m = map(int, ref_month.split("-"))
@@ -920,11 +939,11 @@ async def cmd_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Erro ao ler planilha"); return
     if len(data) <= 1:
         await update.message.reply_text("📊 Nenhum gasto registrado esse mês."); return
-    total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5])
+    total = sum(parse_float(r[5]) for r in data[1:] if len(r) > 5 and r[5])
     cats = {}
     for r in data[1:]:
         if len(r) > 5 and r[2] and r[5]:
-            cats[r[2]] = cats.get(r[2], 0) + float(r[5])
+            cats[r[2]] = cats.get(r[2], 0) + parse_float(r[5])
     lines = [f"📊 *Resumo {datetime.now().strftime('%B/%Y')}*", f"💰 Total: R$ {total:,.2f}",
              f"📂 {len(data)-1} gastos", ""]
     for cat, val in sorted(cats.items(), key=lambda x: -x[1]):
@@ -939,7 +958,7 @@ async def cmd_limite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ym = datetime.now().strftime("%Y-%m")
     try:
         data = read_range(sid, f"{ym}!A1:J200")
-        total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
+        total = sum(parse_float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
     except:
         await update.message.reply_text("❌ Erro ao ler planilha"); return
     day = datetime.now().day
@@ -1280,7 +1299,7 @@ async def execute_busca(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
         row_text = "|".join(str(x).lower() for x in r[:6])
         cat = r[2].lower() if len(r) > 2 else ""
         pag = r[4].lower() if len(r) > 4 else ""
-        val = float(r[5]) if r[5] else 0
+        val = parse_float(r[5]) if r[5] else 0
 
         if filters_list["categoria"] and filters_list["categoria"] not in cat:
             continue
@@ -1298,7 +1317,7 @@ async def execute_busca(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     if not results:
         await update.message.reply_text("🔍 Nenhum gasto encontrado com esses filtros."); return
 
-    total = sum(float(r[5]) for r in results if r[5])
+    total = sum(parse_float(r[5]) for r in results if r[5])
     lines = [f"🔍 *{len(results)} resultado(s)*", f"💰 Total: R$ {total:,.2f}\n"]
     for r in results:
         lines.append(f"• {r[0]} — *{r[1]}* — R$ {r[5]} — {r[3] if len(r)>3 else ''}")
@@ -1326,14 +1345,14 @@ async def cmd_relatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(data) <= 1:
         await update.message.reply_text("📭 Nenhum gasto no mês para gerar relatório."); return
 
-    total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5])
+    total = sum(parse_float(r[5]) for r in data[1:] if len(r) > 5 and r[5])
     cats = {}
     for r in data[1:]:
         if len(r) > 5 and r[2] and r[5]:
-            cats[r[2]] = cats.get(r[2], 0) + float(r[5])
+            cats[r[2]] = cats.get(r[2], 0) + parse_float(r[5])
 
     # Calcular gastos necessários vs supérfluos
-    necessarios = sum(float(r[5]) for r in data[1:] if len(r) > 7 and r[7] == "SIM" and r[5])
+    necessarios = sum(parse_float(r[5]) for r in data[1:] if len(r) > 7 and r[7] == "SIM" and r[5])
     superfluos = total - necessarios
 
     # Gastos fixos
@@ -1423,6 +1442,97 @@ async def cmd_conquistas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 # ═══════════════════════════════════════════════════════
+# /compras — Lista de Compras
+# ═══════════════════════════════════════════════════════
+def get_db_compra():
+    path = get_db_path()
+    return path
+
+async def cmd_compras(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gerencia lista de compras."""
+    if not ensure_user(update):
+        await update.message.reply_text("Use /start primeiro.")
+        return
+    args = context.args
+    user_id = update.effective_user.id
+    path = get_db_compra()
+
+    if not args:
+        # Listar compras
+        with sqlite3.connect(path) as conn:
+            items = conn.execute(
+                "SELECT id, item FROM compras WHERE user_id=? AND comprado=0 ORDER BY criado_em",
+                (user_id,)
+            ).fetchall()
+        if not items:
+            await update.message.reply_text(
+                "🛒 *Lista de Compras*\n\n📭 Nenhum item na lista.\n"
+                "Use */compras add <item>* para adicionar.",
+                parse_mode="Markdown"
+            )
+            return
+        lines = ["🛒 *Lista de Compras*\n"]
+        for i, (item_id, item) in enumerate(items, 1):
+            lines.append(f"{i}. {item}")
+        lines.append(f"\n📝 Total: {len(items)} itens")
+        lines.append("Use */compras rm <n>* para remover.")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    sub = args[0].lower()
+
+    if sub == "add" and len(args) >= 2:
+        item = " ".join(args[1:])
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                "INSERT INTO compras (user_id, item) VALUES (?, ?)",
+                (user_id, item)
+            )
+            conn.commit()
+        await update.message.reply_text(f"✅ Adicionado: *{item}*", parse_mode="Markdown")
+
+    elif sub == "rm" and len(args) >= 2:
+        try:
+            idx = int(args[1]) - 1  # 1-indexed
+        except ValueError:
+            await update.message.reply_text("❌ Use: /compras rm <número>")
+            return
+        with sqlite3.connect(path) as conn:
+            items = conn.execute(
+                "SELECT id, item FROM compras WHERE user_id=? AND comprado=0 ORDER BY criado_em",
+                (user_id,)
+            ).fetchall()
+            if 0 <= idx < len(items):
+                item_id, item = items[idx]
+                conn.execute("DELETE FROM compras WHERE id=?", (item_id,))
+                conn.commit()
+                await update.message.reply_text(f"🗑️ Removido: *{item}*", parse_mode="Markdown")
+            else:
+                await update.message.reply_text(f"❌ Item #{args[1]} não encontrado. Use /compras para ver a lista.")
+
+    elif sub == "done":
+        with sqlite3.connect(path) as conn:
+            items = conn.execute(
+                "SELECT COUNT(*) FROM compras WHERE user_id=? AND comprado=0",
+                (user_id,)
+            ).fetchone()[0]
+            conn.execute(
+                "DELETE FROM compras WHERE user_id=? AND comprado=0",
+                (user_id,)
+            )
+            conn.commit()
+        await update.message.reply_text(f"✅ Lista de compras limpa! {items} itens removidos.")
+
+    else:
+        await update.message.reply_text(
+            "🛒 */compras* — Ver lista\n"
+            "*/compras add leite* — Adicionar item\n"
+            "*/compras rm 1* — Remover item #1\n"
+            "*/compras done* — Limpar lista (depois da compra)",
+            parse_mode="Markdown"
+        )
+
+# ═══════════════════════════════════════════════════════
 # MENU CALLBACKS
 # ═══════════════════════════════════════════════════════
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1458,20 +1568,18 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             restantes = p["n_parcelas"] - p.get("pagas",0)
             lines.append(f"• *{p['nome']}* — {p.get('pagas',0)}/{p['n_parcelas']} — R$ {p['valor_parcela']:,.2f}/mês")
         await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
-    elif cmd == "menu_metas":
-        await query.edit_message_text("🎯 Use */meta* para ver ou */meta add* para criar metas.", parse_mode="Markdown")
     elif cmd == "menu_busca":
         await query.edit_message_text("🔍 Use */busca <termo>* para pesquisar gastos.\nEx: */busca mercado* ou */busca categoria:alimentacao*", parse_mode="Markdown")
+    elif cmd == "menu_compras":
+        await query.edit_message_text("🛒 Use */compras* para ver a lista.\n*/compras add leite* — adicionar item\n*/compras rm leite* — remover item\n*/compras done* — limpar lista", parse_mode="Markdown")
     elif cmd == "menu_relatorio":
         await query.edit_message_text("📄 Use */relatorio* para ver o relatório financeiro completo.", parse_mode="Markdown")
-    elif cmd == "menu_conquistas":
-        await query.edit_message_text("🏆 Use */conquistas* para ver suas conquistas e nível.", parse_mode="Markdown")
     else:
         await query.edit_message_text("✅ Funcionalidade em desenvolvimento. Use os comandos diretos.")
 
-# ═══════════════════════════════════════════════════════
-# ERROR HANDLER
-# ═══════════════════════════════════════════════════════
+
+    # ═══════════════════════════════════════════════════════
+    # ERROR HANDLER
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception: {context.error}", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
@@ -1492,7 +1600,7 @@ async def budget_warning(context: ContextTypes.DEFAULT_TYPE):
         try:
             ym = datetime.now().strftime("%Y-%m")
             data = read_range(user["spreadsheet_id"], f"{ym}!A1:J200")
-            total = sum(float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
+            total = sum(parse_float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
             pct = total / user["income"] * 100 if user["income"] > 0 else 0
 
             if pct >= 80:
@@ -1552,10 +1660,9 @@ async def post_init(application):
         ("pagar_fatura", "Pagar fatura"),
         ("fixo", "Gerenciar gastos fixos"),
         ("parcela", "Gerenciar parcelamentos"),
-        ("meta", "Metas financeiras"),
         ("busca", "Buscar gastos"),
+        ("compras", "Lista de compras / mercado"),
         ("relatorio", "Relatório financeiro completo"),
-        ("conquistas", "Suas conquistas e nível"),
         ("novomes", "Criar aba do mês atual"),
     ])
     logger.info("Bot commands set")
@@ -1676,9 +1783,10 @@ def main():
     app.add_handler(CommandHandler("novomes", cmd_novomes))
     app.add_handler(CommandHandler("busca", cmd_busca))
     app.add_handler(CommandHandler("relatorio", cmd_relatorio))
-    app.add_handler(CommandHandler("conquistas", cmd_conquistas))
+    # app.add_handler(CommandHandler("conquistas", cmd_conquistas))  # removed for simplicity
 
-    # ConversationHandlers depois
+    app.add_handler(CommandHandler("compras", cmd_compras))
+# ConversationHandlers depois
     app.add_handler(onboarding_conv)
     app.add_handler(meta_conv)
     app.add_handler(parcela_conv)
