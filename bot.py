@@ -599,7 +599,9 @@ def main_menu_keyboard():
         [InlineKeyboardButton("📄 Relatório", callback_data="menu_relatorio"),
          InlineKeyboardButton("🛒 Compras", callback_data="menu_compras")],
         [InlineKeyboardButton("🔍 Buscar", callback_data="menu_busca"),
-         InlineKeyboardButton("💵 Receita", callback_data="menu_receita")],
+         InlineKeyboardButton("📈 Insights", callback_data="menu_insights")],
+        [InlineKeyboardButton("💵 Receita", callback_data="menu_receita"),
+         InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil")],
         [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil")],
     ])
 
@@ -1678,6 +1680,36 @@ async def cmd_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ═══════════════════════════════════════════════════════
+# /insights — Análise Inteligente de Gastos
+# ═══════════════════════════════════════════════════════
+async def cmd_insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gera insights financeiros automáticos."""
+    if not ensure_user(update):
+        await update.message.reply_text("Use /start primeiro.")
+        return
+    user = get_user(update.effective_user.id)
+    sid = user["spreadsheet_id"]
+    ym = datetime.now().strftime("%Y-%m")
+    
+    try:
+        from insights import gerar_insights
+        insights_list = gerar_insights(sid, ym)
+    except Exception as e:
+        logger.error(f"Erro insights: {e}")
+        await update.message.reply_text(f"❌ Erro ao gerar insights: {e}")
+        return
+    
+    if not insights_list:
+        await update.message.reply_text("📈 Nenhum insight disponível ainda. Registre mais gastos!", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+        return
+    
+    lines = ["📈 *Seus Insights Financeiros*\n"]
+    for insight in insights_list:
+        lines.append(insight)
+    
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
+
+# ═══════════════════════════════════════════════════════
 # /compras — Lista de Compras
 # ═══════════════════════════════════════════════════════
 def get_db_compra():
@@ -2113,6 +2145,8 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("👇", reply_markup=main_menu_keyboard())
     elif cmd == "menu_busca":
         await query.edit_message_text("🔍 Use */busca <termo>* para pesquisar gastos.\nEx: */busca mercado* ou */busca categoria:alimentacao*", parse_mode="Markdown")
+    elif cmd == "menu_insights":
+        await query.edit_message_text("📈 Use */insights* para ver análises inteligentes dos seus gastos.\nDetecta padrões, aumentos e sugere economias.", parse_mode="Markdown", reply_markup=main_menu_keyboard())
     elif cmd == "menu_receita":
         await query.edit_message_text("💵 Use */receita <valor> <descrição>* para registrar renda extra.\nEx: */receita 500 freela*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
     elif cmd == "menu_perfil":
@@ -2208,6 +2242,7 @@ async def post_init(application):
         ("fixo", "Gerenciar gastos fixos"),
         ("parcela", "Gerenciar parcelamentos"),
         ("busca", "Buscar gastos"),
+        ("insights", "Insights financeiros e alertas"),
         ("receita", "Registrar renda extra"),
         ("perfil", "Configurar perfil (renda, nome, cartões)"),
         ("compras", "Lista de compras / mercado"),
@@ -2221,6 +2256,14 @@ async def post_init(application):
 # ═══════════════════════════════════════════════════════
 def main():
     init_db()
+    
+    # Iniciar dashboard em thread separada na porta 8888
+    try:
+        from dashboard import start_dashboard
+        start_dashboard()
+        logger.info("📊 Dashboard iniciado na porta 8888")
+    except Exception as e:
+        logger.warning(f"Dashboard não iniciado: {e}")
 
     # Sincronizar usuários da Master Sheet (se disponível)
     try:
@@ -2321,6 +2364,7 @@ def main():
     app.add_handler(CommandHandler("limite", cmd_limite))
     app.add_handler(CommandHandler("novomes", cmd_novomes))
     app.add_handler(CommandHandler("busca", cmd_busca))
+    app.add_handler(CommandHandler("insights", cmd_insights))
     app.add_handler(CommandHandler("relatorio", cmd_relatorio))
     # app.add_handler(CommandHandler("conquistas", cmd_conquistas))  # removed for simplicity
 
