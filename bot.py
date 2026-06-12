@@ -2257,13 +2257,16 @@ async def post_init(application):
 def main():
     init_db()
     
-    # Iniciar dashboard em thread separada na porta 8888 (não-bloqueante)
-    try:
-        from dashboard import start_dashboard
-        start_dashboard(blocking=False)
-        logger.info("📊 Dashboard iniciado na porta 8888")
-    except Exception as e:
-        logger.warning(f"Dashboard não iniciado: {e}")
+    # Dashboard só inicia localmente (não no Render para evitar conflito de porta)
+    if not os.environ.get("RENDER"):
+        try:
+            from dashboard import start_dashboard
+            start_dashboard(blocking=False)
+            logger.info("📊 Dashboard iniciado na porta 8888")
+        except Exception as e:
+            logger.warning(f"Dashboard não iniciado: {e}")
+    else:
+        logger.info("📊 Dashboard desabilitado no Render (porta 8080 reservada)")
 
     # Sincronizar usuários da Master Sheet (se disponível)
     try:
