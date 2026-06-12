@@ -65,11 +65,13 @@ _credentials_instance = None
 # HELPER: converte valor da planilha para float
 # ═══════════════════════════════════════════════════════
 def parse_float(val) -> float:
-    """Converte valor da planilha para float, suportando vírgula brasileira."""
+    """Converte valor da sheet para float (formato BR: 1.234,56 ou 21,95)."""
     if val is None:
         return 0.0
     try:
-        return float(str(val).replace(",", ".").replace("R$", "").strip())
+        s = str(val).replace("R$", "").strip()
+        s = s.replace(".", "").replace(",", ".")
+        return float(s)
     except (ValueError, TypeError):
         return 0.0
 
