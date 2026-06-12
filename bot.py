@@ -1760,7 +1760,7 @@ def main():
 
     # ── /meta Conversational Handler ──
     meta_conv = ConversationHandler(
-        entry_points=[CommandHandler("meta", cmd_meta)],
+        # entry_points=[CommandHandler("meta", cmd_meta)],  # removed for simplicity
         states={
             META_NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, meta_nome)],
             META_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, meta_target)],
@@ -1788,7 +1788,7 @@ def main():
     app.add_handler(CommandHandler("compras", cmd_compras))
 # ConversationHandlers depois
     app.add_handler(onboarding_conv)
-    app.add_handler(meta_conv)
+    # app.add_handler(meta_conv)  # removed for simplicity
     app.add_handler(parcela_conv)
     app.add_handler(fixo_conv)
     app.add_handler(gasto_conv)
