@@ -35,10 +35,13 @@ logger = logging.getLogger("FinBot")
 # ═══════════════════════════════════════════════════════
 (NAME, INCOME, CARDS, GOAL,
  AMOUNT, DESC, CATEGORY, PAYMENT, CARD_SEL, NECESSARY, OBS,
+ IS_SUBSCRIPTION, SUBSCRIPTION_NAME, SUBSCRIPTION_VALOR,
+ IS_INSTALMENT, INSTALMENT_QTY,
  FIXO_NOME, FIXO_VALOR, FIXO_DIA, FIXO_CATEGORIA,
  PARC_NOME, PARC_TOTAL, PARC_NPARC, PARC_VALOR_PARC, PARC_CATEGORIA,
  META_NOME, META_TARGET, META_CATEGORIA_META,
- BUSCA_TERMO) = range(24)
+ BUSCA_TERMO,
+ COMPRAS_CATEG, COMPRAS_ITEM, COMPRAS_QTY) = range(32)
 
 CATEGORIES = {
     "alimentacao": "🍽️ Alimentação", "mercado": "🛒 Mercado",
@@ -174,8 +177,17 @@ def init_db():
                 user_id INTEGER,
                 item TEXT NOT NULL,
                 qty TEXT DEFAULT "1",
-                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                comprado INTEGER DEFAULT 0
+                categoria TEXT DEFAULT "mercado",
+                preco REAL DEFAULT 0,
+                comprado INTEGER DEFAULT 0,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS desejos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                item TEXT NOT NULL,
+                preco_alvo REAL DEFAULT 0,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS achievements (
                 user_id INTEGER,
@@ -586,7 +598,9 @@ def main_menu_keyboard():
          InlineKeyboardButton("📅 Parcelas", callback_data="menu_parcelas")],
         [InlineKeyboardButton("📄 Relatório", callback_data="menu_relatorio"),
          InlineKeyboardButton("🛒 Compras", callback_data="menu_compras")],
-        [InlineKeyboardButton("🔍 Buscar", callback_data="menu_busca")],
+        [InlineKeyboardButton("🔍 Buscar", callback_data="menu_busca"),
+         InlineKeyboardButton("💵 Receita", callback_data="menu_receita")],
+        [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil")],
     ])
 
 # ═══════════════════════════════════════════════════════
@@ -805,7 +819,90 @@ async def gasto_necessary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nec = "SIM" if query.data == "nec_sim" else "NÃO"
     context.user_data["gasto"]["necessary"] = nec
     await query.edit_message_text(
-        f"⭐ Necessário: *{nec}*\n\n📝 *Alguma observação?*\nDigite /pular para deixar em branco",
+        f"⭐ Necessário: *{nec}*\n\n🔄 *É uma assinatura/mensalidade recorrente?*",
+        parse_mode="Markdown",
+        reply_markup=yes_no_keyboard("sub")
+    )
+    return IS_SUBSCRIPTION
+
+async def gasto_is_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    is_sub = query.data == "sub_sim"
+    context.user_data["gasto"]["is_subscription"] = is_sub
+    if is_sub:
+        await query.edit_message_text(
+            "📌 *Nome da assinatura:*\nEx: Netflix, Spotify, Academia, iCloud...",
+            parse_mode="Markdown"
+        )
+        return SUBSCRIPTION_NAME
+    context.user_data["gasto"]["subscription_name"] = ""
+    context.user_data["gasto"]["subscription_valor"] = 0
+    return await _ask_instalment(update, context)
+
+async def gasto_subscription_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["gasto"]["subscription_name"] = update.message.text
+    await update.message.reply_text(
+        f"💰 *Valor mensal da assinatura:*\nEx: 55,90",
+        parse_mode="Markdown"
+    )
+    return SUBSCRIPTION_VALOR
+
+async def gasto_subscription_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.replace(",", ".").replace("R$", "").strip()
+    try:
+        v = float(txt)
+    except ValueError:
+        await update.message.reply_text("❌ Valor inválido. Ex: 55,90")
+        return SUBSCRIPTION_VALOR
+    context.user_data["gasto"]["subscription_valor"] = v
+    return await _ask_instalment(update, context)
+
+async def _ask_instalment(update, context):
+    """Ask if credit purchase is instalment."""
+    g = context.user_data["gasto"]
+    if g["payment"] == "credito":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛒 À vista", callback_data="inst_avista"),
+             InlineKeyboardButton("📅 Parcelado", callback_data="inst_parcelado")]
+        ])
+        msg = update.message if update.message else update.callback_query.message
+        await msg.reply_text(
+            "📅 *Compra parcelada ou à vista?*",
+            parse_mode="Markdown", reply_markup=keyboard
+        )
+        return IS_INSTALMENT
+    context.user_data["gasto"]["instalment_qty"] = 1
+    return await _go_to_obs(update, context)
+
+async def gasto_is_instalment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    is_inst = query.data == "inst_parcelado"
+    if is_inst:
+        await query.edit_message_text(
+            "🔢 *Em quantas vezes?*\nEx: 3, 6, 12, 24",
+            parse_mode="Markdown"
+        )
+        return INSTALMENT_QTY
+    context.user_data["gasto"]["instalment_qty"] = 1
+    return await _go_to_obs(update, context)
+
+async def gasto_instalment_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        qty = int(update.message.text)
+        if qty < 1: raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Número inválido. Ex: 3, 6, 12")
+        return INSTALMENT_QTY
+    context.user_data["gasto"]["instalment_qty"] = qty
+    return await _go_to_obs(update, context)
+
+async def _go_to_obs(update, context):
+    """Go to OBS state."""
+    msg = update.message if update.message else update.callback_query.message
+    await msg.reply_text(
+        "📝 *Alguma observação?*\nDigite /pular para deixar em branco",
         parse_mode="Markdown"
     )
     return OBS
@@ -816,9 +913,11 @@ async def gasto_obs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def gasto_obs_pular(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para /pular no estado OBS — pula observação."""
     await salvar_gasto(update, context, "")
     return ConversationHandler.END
+
+async def gasto_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Modo rápido: /g 50 mercado alimentacao pix nubank"""
 
 async def gasto_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Modo rápido: /g 50 mercado alimentacao pix nubank"""
@@ -892,6 +991,27 @@ async def salvar_gasto(update: Update, context, obs: str):
         except Exception as e:
             logger.error(f"Erro fatura: {e}")
 
+    # Se parcelado, adicionar parcelas na aba PARCELAMENTOS
+    qty = g.get("instalment_qty", 1)
+    if qty > 1:
+        try:
+            ensure_parcelas_sheet(sid)
+            valor_parcela = round(g["amount"] / qty, 2)
+            prox_venc = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+            append_parcela(sid, [g["desc"], g["amount"], qty, valor_parcela, g["category"], "0", prox_venc, "SIM"])
+        except Exception as e:
+            logger.error(f"Erro parcela: {e}")
+
+    # Se assinatura, adicionar na aba FIXOS
+    if g.get("is_subscription"):
+        try:
+            ensure_fixos_sheet(sid)
+            sub_name = g.get("subscription_name", g["desc"])
+            sub_valor = g.get("subscription_valor", g["amount"])
+            append_fixo(sid, [sub_name, sub_valor, str(datetime.now().day), g["category"], "SIM", ""])
+        except Exception as e:
+            logger.error(f"Erro fixo: {e}")
+
     # Atualizar streak
     today = datetime.now().strftime("%Y-%m-%d")
     last = user.get("last_gasto_date", "")
@@ -900,7 +1020,6 @@ async def salvar_gasto(update: Update, context, obs: str):
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         streak = (user.get("streak", 0) or 0) + 1 if last == yesterday else 1
     gastos_count = (user.get("gastos_count", 0) or 0) + 1
-
     upsert_user(user_id, last_gasto_date=today, streak=streak, gastos_count=gastos_count)
 
     msg_parts = [
@@ -909,6 +1028,10 @@ async def salvar_gasto(update: Update, context, obs: str):
         f"💳 {PAYMENT_METHODS.get(g['payment'], g['payment'])}",
     ]
     if g.get("card"): msg_parts.append(f"🏦 {g['card']}")
+    if g.get("is_subscription"):
+        msg_parts.append(f"📌 Assinatura: {g.get('subscription_name', '')} — R$ {g.get('subscription_valor', 0):,.2f}/mês")
+    if qty > 1:
+        msg_parts.append(f"📅 Parcelado em {qty}x de R$ {round(g['amount']/qty, 2):,.2f}")
     if obs: msg_parts.append(f"📝 {obs}")
     msg_parts.append(f"🔥 Streak: {streak} dias")
 
@@ -916,7 +1039,6 @@ async def salvar_gasto(update: Update, context, obs: str):
         await update.callback_query.edit_message_text("\n".join(msg_parts), parse_mode="Markdown")
     else:
         await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
-    # Auto-retorno ao menu
     await (update.callback_query if update.callback_query else update.message).reply_text(
         "👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard()
     )
@@ -947,6 +1069,7 @@ async def cmd_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bar = "█" * int(val/total*15) + "░" * (15 - int(val/total*15)) if total > 0 else "░"*15
         lines.append(f"{bar} {cat[:20]}: R$ {val:,.2f}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text(f"📊 Planilha: https://docs.google.com/spreadsheets/d/{sid}", parse_mode="Markdown")
     await update.message.reply_text("👇", reply_markup=main_menu_keyboard())
 
 async def cmd_limite(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1325,6 +1448,7 @@ async def execute_busca(update: Update, context: ContextTypes.DEFAULT_TYPE, quer
     if len(lines) > 30:
         lines = lines[:28] + ["\n... (mais resultados não exibidos)"]
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("👇", reply_markup=main_menu_keyboard())
 
 # ═══════════════════════════════════════════════════════
 # /relatorio — Relatório Financeiro
@@ -1394,6 +1518,7 @@ async def cmd_relatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{bar} {cat[:15]}: R$ {val:,.2f} ({pct:.0f}%)")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text(f"📊 Planilha: https://docs.google.com/spreadsheets/d/{sid}", parse_mode="Markdown")
     await update.message.reply_text("👇", reply_markup=main_menu_keyboard())
 
 # ═══════════════════════════════════════════════════════
@@ -1442,6 +1567,295 @@ async def cmd_conquistas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"  🔒 {ACHIEVEMENT_NAMES['gastos_100']}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+# ═══════════════════════════════════════════════════════
+# /perfil — Configurar Perfil
+# ═══════════════════════════════════════════════════════
+async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra perfil e permite editar renda."""
+    if not ensure_user(update):
+        await update.message.reply_text("Use /start primeiro.")
+        return
+    user = get_user(update.effective_user.id)
+    args = context.args
+    
+    if not args:
+        await update.message.reply_text(
+            f"👤 *Seu Perfil*\n\n"
+            f"📝 Nome: {user['name']}\n"
+            f"💰 Renda: R$ {user['income']:,.2f}\n"
+            f"💳 Cartões: {user.get('cards', 'nenhum')}\n"
+            f"🎯 Objetivo: {user.get('goal', '')}\n\n"
+            f"Para alterar sua renda: */perfil renda 3500*\n"
+            f"Para alterar nome: */perfil nome Caio Salles*\n"
+            f"Para alterar cartões: */perfil cards Nubank, Itau*",
+            parse_mode="Markdown", reply_markup=main_menu_keyboard()
+        )
+        return
+    
+    sub = args[0].lower()
+    if sub == "renda" and len(args) >= 2:
+        try:
+            nova_renda = float(args[1].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Valor inválido. Use: /perfil renda 3500")
+            return
+        upsert_user(update.effective_user.id, income=nova_renda)
+        save_user_to_master(update.effective_user.id, user.get("username",""), user.get("first_name",""),
+                           user["name"], nova_renda, user.get("cards",""), user.get("goal",""), user["spreadsheet_id"])
+        await update.message.reply_text(f"✅ Renda atualizada para R$ {nova_renda:,.2f}!", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+    elif sub == "nome" and len(args) >= 2:
+        novo_nome = " ".join(args[1:])
+        upsert_user(update.effective_user.id, name=novo_nome)
+        await update.message.reply_text(f"✅ Nome atualizado para *{novo_nome}*!", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+    elif sub == "cards" and len(args) >= 2:
+        novos_cards = " ".join(args[1:])
+        upsert_user(update.effective_user.id, cards=novos_cards)
+        await update.message.reply_text(f"✅ Cartões atualizados: *{novos_cards}*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+    else:
+        await update.message.reply_text(
+            "Use: */perfil renda 3500*\n*/perfil nome Caio*\n*/perfil cards Nubank, Itau*",
+            parse_mode="Markdown"
+        )
+
+# ═══════════════════════════════════════════════════════
+# /receita — Registrar Renda Extra
+# ═══════════════════════════════════════════════════════
+async def cmd_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Registra uma receita extra na planilha."""
+    if not ensure_user(update):
+        await update.message.reply_text("Use /start primeiro.")
+        return
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "💵 *Registrar Receita Extra*\n\n"
+            "Uso: */receita <valor> <descrição>*\n"
+            "Ex: */receita 500 freela*\n*/receita 1500 bonus*\n*/receita 200 ifood*",
+            parse_mode="Markdown"
+        )
+        return
+    
+    try:
+        valor = float(args[0].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ Valor inválido. Ex: /receita 500 freela")
+        return
+    
+    desc = " ".join(args[1:])
+    user = get_user(update.effective_user.id)
+    sid = user["spreadsheet_id"]
+    ym = datetime.now().strftime("%Y-%m")
+    get_or_create_month_sheet(sid, ym)
+    
+    # Add a row with type "RECEITA" instead of "CONSUMO"
+    row = [
+        datetime.now().strftime("%d/%m/%Y"),
+        desc, "RECEITA", "", "PIX",
+        valor, "", "SIM", "RECEITA", ""
+    ]
+    append_gasto(sid, ym, row)
+    
+    # Also ensure INCOME tab exists
+    svc = get_sheets_service()
+    meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+    sheets_list = [s["properties"]["title"] for s in meta.get("sheets", [])]
+    if "RECEITAS" not in sheets_list:
+        svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={
+            "requests": [{"addSheet": {"properties": {"title": "RECEITAS"}}}]
+        }).execute()
+        svc.spreadsheets().values().update(
+            spreadsheetId=sid, range="RECEITAS!A1:E1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [["DATA","DESCRIÇÃO","VALOR","CATEGORIA","OBS"]]}
+        ).execute()
+    
+    svc.spreadsheets().values().append(
+        spreadsheetId=sid, range="RECEITAS!A:E",
+        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
+        body={"values": [[datetime.now().strftime("%d/%m/%Y"), desc, valor, "EXTRA", ""]]}
+    ).execute()
+    
+    await update.message.reply_text(
+        f"💵 *Receita de R$ {valor:,.2f}* registrada!\n📝 {desc}",
+        parse_mode="Markdown", reply_markup=main_menu_keyboard()
+    )
+
+# ═══════════════════════════════════════════════════════
+# /compras — Lista de Compras
+# ═══════════════════════════════════════════════════════
+def get_db_compra():
+    path = get_db_path()
+    return path
+
+async def cmd_compras(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gerencia lista de compras com categorias, preço histórico e lista de desejos."""
+    if not ensure_user(update):
+        await update.message.reply_text("Use /start primeiro.")
+        return
+    args = context.args
+    user_id = update.effective_user.id
+    path = get_db_compra()
+
+    if not args:
+        # Listar compras pendentes
+        with sqlite3.connect(path) as conn:
+            items = conn.execute(
+                "SELECT id, item, qty, categoria, preco FROM compras WHERE user_id=? AND comprado=0 ORDER BY categoria, criado_em",
+                (user_id,)
+            ).fetchall()
+        if not items:
+            await update.message.reply_text(
+                "🛒 *Lista de Compras*\n\n📭 Nenhum item na lista.\n"
+                "Use */compras add <item>* para adicionar.\n"
+                "Categorias: */compras add mercado leite* | */compras add online kindle*",
+                parse_mode="Markdown", reply_markup=main_menu_keyboard()
+            )
+            return
+        cats = {}
+        for item_id, item, qty, cat, preco in items:
+            if cat not in cats:
+                cats[cat] = []
+            preco_str = f" (R$ {preco:.2f})" if preco > 0 else ""
+            qty_str = f" ({qty})" if qty and qty != "1" else ""
+            cats[cat].append(f"• {item}{qty_str}{preco_str}")
+        lines = ["🛒 *Lista de Compras*\n"]
+        for cat, itens in cats.items():
+            icon = "🛒" if cat == "mercado" else "📦" if cat == "online" else "📋"
+            lines.append(f"{icon} *{cat.upper()}*:")
+            lines.extend(itens)
+            lines.append("")
+        total = len(items)
+        lines.append(f"📝 Total: {total} itens")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
+        return
+
+    sub = args[0].lower()
+
+    if sub == "add" and len(args) >= 2:
+        # Parse: /compras add [categoria] item [qty] [preco]
+        item_args = args[1:]
+        cat = "mercado"
+        qty = "1"
+        preco = 0.0
+        
+        # Check for category prefix
+        if item_args[0].lower() in ("mercado", "online", "farmacia", "casa", "outros"):
+            cat = item_args[0].lower()
+            item_args = item_args[1:]
+        
+        # Check for qty (2x at end)
+        if item_args and item_args[-1].lower().endswith("x"):
+            try:
+                q = int(item_args[-1][:-1])
+                if q > 0:
+                    qty = str(q)
+                    item_args = item_args[:-1]
+            except ValueError:
+                pass
+        
+        # Check for price (R$50 or 50.00 at end)
+        if item_args and item_args[-1].startswith("R$"):
+            try:
+                preco = float(item_args[-1][2:].replace(",", "."))
+                item_args = item_args[:-1]
+            except ValueError:
+                pass
+        elif item_args:
+            try:
+                preco = float(item_args[-1].replace(",", "."))
+                item_args = item_args[:-1]
+            except (ValueError, IndexError):
+                pass
+        
+        item = " ".join(item_args) if item_args else "item"
+        
+        with sqlite3.connect(path) as conn:
+            conn.execute("INSERT INTO compras (user_id, item, qty, categoria, preco) VALUES (?, ?, ?, ?, ?)",
+                        (user_id, item, qty, cat, preco))
+            conn.commit()
+        
+        preco_str = f" — R$ {preco:.2f}" if preco > 0 else ""
+        await update.message.reply_text(
+            f"✅ Adicionado: *{item}* ({cat}){preco_str}",
+            parse_mode="Markdown", reply_markup=main_menu_keyboard()
+        )
+
+    elif sub == "rm" and len(args) >= 2:
+        try:
+            idx = int(args[1]) - 1
+        except ValueError:
+            await update.message.reply_text("❌ Use: /compras rm <número>")
+            return
+        with sqlite3.connect(path) as conn:
+            items = conn.execute("SELECT id, item FROM compras WHERE user_id=? AND comprado=0 ORDER BY criado_em", (user_id,)).fetchall()
+            if 0 <= idx < len(items):
+                conn.execute("DELETE FROM compras WHERE id=?", (items[idx][0],))
+                conn.commit()
+                await update.message.reply_text(f"🗑️ Removido: *{items[idx][1]}*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+            else:
+                await update.message.reply_text(f"❌ Item #{args[1]} não encontrado.")
+
+    elif sub == "comprado" and len(args) >= 2:
+        # Mark item as bought: /compras comprado 1
+        try:
+            idx = int(args[1]) - 1
+        except ValueError:
+            await update.message.reply_text("❌ Use: /compras comprado <número>")
+            return
+        with sqlite3.connect(path) as conn:
+            items = conn.execute("SELECT id, item FROM compras WHERE user_id=? AND comprado=0 ORDER BY criado_em", (user_id,)).fetchall()
+            if 0 <= idx < len(items):
+                conn.execute("UPDATE compras SET comprado=1 WHERE id=?", (items[idx][0],))
+                conn.commit()
+                await update.message.reply_text(f"✅ Comprado: *{items[idx][1]}* 🎉", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+            else:
+                await update.message.reply_text(f"❌ Item #{args[1]} não encontrado.")
+
+    elif sub == "desejo" and len(args) >= 2:
+        # Add to wishlist: /compras desejo item [preco_alvo]
+        item = " ".join(args[1:])
+        preco_alvo = 0.0
+        with sqlite3.connect(path) as conn:
+            conn.execute("INSERT INTO desejos (user_id, item) VALUES (?, ?)", (user_id, item))
+            conn.commit()
+        await update.message.reply_text(
+            f"💝 *{item}* adicionado à lista de desejos!\n"
+            f"Te avisarem quando houver promoções (em breve).",
+            parse_mode="Markdown", reply_markup=main_menu_keyboard()
+        )
+
+    elif sub == "desejos":
+        with sqlite3.connect(path) as conn:
+            items = conn.execute("SELECT id, item FROM desejos WHERE user_id=? ORDER BY criado_em", (user_id,)).fetchall()
+        if not items:
+            await update.message.reply_text("💝 Lista de desejos vazia.", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+            return
+        lines = ["💝 *Lista de Desejos*\n"]
+        for i, (item_id, item) in enumerate(items, 1):
+            lines.append(f"{i}. {item}")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
+
+    elif sub == "done":
+        with sqlite3.connect(path) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM compras WHERE user_id=? AND comprado=0", (user_id,)).fetchone()[0]
+            conn.execute("DELETE FROM compras WHERE user_id=? AND comprado=0", (user_id,))
+            conn.commit()
+        await update.message.reply_text(f"✅ Lista limpa! {count} itens removidos.", reply_markup=main_menu_keyboard())
+
+    else:
+        await update.message.reply_text(
+            "🛒 *Compras*\n\n"
+            "*/compras* — Ver lista\n"
+            "*/compras add mercado leite 2x* — Adicionar\n"
+            "*/compras add online kindle 200* — Com preço\n"
+            "*/compras rm 1* — Remover\n"
+            "*/compras comprado 1* — Marcar como comprado\n"
+            "*/compras desejo item* — Lista de desejos\n"
+            "*/compras desejos* — Ver desejos\n"
+            "*/compras done* — Limpar lista",
+            parse_mode="Markdown"
+        )
 
 # ═══════════════════════════════════════════════════════
 # /perfil — Configurar Perfil
@@ -1703,6 +2117,10 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("👇", reply_markup=main_menu_keyboard())
     elif cmd == "menu_busca":
         await query.edit_message_text("🔍 Use */busca <termo>* para pesquisar gastos.\nEx: */busca mercado* ou */busca categoria:alimentacao*", parse_mode="Markdown")
+    elif cmd == "menu_receita":
+        await query.edit_message_text("💵 Use */receita <valor> <descrição>* para registrar renda extra.\nEx: */receita 500 freela*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+    elif cmd == "menu_perfil":
+        await query.edit_message_text("👤 Use */perfil* para ver ou */perfil renda 3500* para alterar.", parse_mode="Markdown", reply_markup=main_menu_keyboard())
     elif cmd == "menu_compras":
         await query.edit_message_text("🛒 Lista de Compras\n*/compras* — Ver lista\n*/compras add leite* — Adicionar\n*/compras rm 1* — Remover\n*/compras done* — Limpar", parse_mode="Markdown", reply_markup=main_menu_keyboard())
     elif cmd == "menu_relatorio":
@@ -1794,8 +2212,8 @@ async def post_init(application):
         ("fixo", "Gerenciar gastos fixos"),
         ("parcela", "Gerenciar parcelamentos"),
         ("busca", "Buscar gastos"),
-        ("perfil", "Configurar perfil (renda, nome, cartões)"),
         ("receita", "Registrar renda extra"),
+        ("perfil", "Configurar perfil (renda, nome, cartões)"),
         ("compras", "Lista de compras / mercado"),
         ("relatorio", "Relatório financeiro completo"),
         ("novomes", "Criar aba do mês atual"),
