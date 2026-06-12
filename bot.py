@@ -25,7 +25,7 @@ TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TEMPLATE_SPREADSHEET_ID = os.environ.get("TEMPLATE_SPREADSHEET_ID", "1m-GTVEJcqzzEBoslIJ5OpeSPj1HJnd3U-6m3JCH_uv8")
 DB_PATH = Path(__file__).parent / "finbot.db"
 RENDER_DB_PATH = Path("/tmp/finbot.db")
-MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID", "1m-GTVEJcqzzEBoslIJ5OpeSPj1HJnd3U-6m3JCH_uv8")
+MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID", "1tTn01DomMhi5mrXW9yhrHzyE2-Uo9A85RlM_GsFTjzc")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("FinBot")
