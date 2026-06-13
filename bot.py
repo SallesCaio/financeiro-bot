@@ -589,18 +589,31 @@ def yes_no_keyboard(prefix: str):
     ])
 
 def main_menu_keyboard():
+    """Menu principal com 5 categorias."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💸 Finanças", callback_data="menu_financas")],
+        [InlineKeyboardButton("📊 Relatórios", callback_data="menu_relatorios")],
+        [InlineKeyboardButton("🛒 Compras", callback_data="menu_compras")],
+        [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil")],
+        [InlineKeyboardButton("💵 Receita", callback_data="menu_receita")],
+    ])
+
+def financas_submenu_keyboard():
+    """Sub-menu de Finanças."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💸 Lançamentos", callback_data="menu_lancamentos"),
          InlineKeyboardButton("📅 Parcelas", callback_data="menu_parcelas")],
         [InlineKeyboardButton("📱 Assinaturas", callback_data="menu_assinaturas"),
-         InlineKeyboardButton("🔄 Recorrentes", callback_data="menu_recorrentes")],
+         InlineKeyboardButton("🔙 Voltar", callback_data="menu_voltar")],
+    ])
+
+def relatorios_submenu_keyboard():
+    """Sub-menu de Relatórios."""
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Resumo", callback_data="menu_resumo"),
          InlineKeyboardButton("📈 Insights", callback_data="menu_insights")],
-        [InlineKeyboardButton("🛒 Compras", callback_data="menu_compras"),
-         InlineKeyboardButton("💡 Desejos", callback_data="menu_desejos")],
-        [InlineKeyboardButton("💵 Receita", callback_data="menu_receita"),
-         InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil")],
-        [InlineKeyboardButton("📊 Relatórios", callback_data="menu_relatorios")],
+        [InlineKeyboardButton("📄 Relatório Completo", callback_data="menu_relatorio")],
+        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_voltar")],
     ])
 
 # ═══════════════════════════════════════════════════════
@@ -611,9 +624,7 @@ def ensure_user(update: Update):
     user = get_user(user_id)
     return user and user.get("onboarding_done")
 
-def get_level_from_streak(streak: int) -> tuple:
-    """Deprecated: Streak removido. Mantido para compatibilidade."""
-    return ("", "")
+
 
 # ═══════════════════════════════════════════════════════
 # ONBOARDING
@@ -1023,7 +1034,6 @@ async def salvar_gasto(update: Update, context, obs: str):
     if qty > 1:
         msg_parts.append(f"📅 Parcelado em {qty}x de R$ {round(g['amount']/qty, 2):,.2f}")
     if obs: msg_parts.append(f"📝 {obs}")
-    msg_parts.append(f"🔥 Streak: {streak} dias")
 
     if update.callback_query:
         await update.callback_query.edit_message_text("\n".join(msg_parts), parse_mode="Markdown")
@@ -2091,48 +2101,144 @@ async def cmd_compras(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MENU CALLBACKS
 # ═══════════════════════════════════════════════════════
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        cmd = query.data
+    query = update.callback_query
+    await query.answer()
+    cmd = query.data
 
-        if cmd == "menu_lancamentos":
-            msg = await query.edit_message_text(
-                "💸 *Lançamentos do Mês*\n\nUse o comando \"/gasto\" para o modo guiado, \n\nou \"/g 50 mercado alimentação pix\" para modo rápido.\n\nPara à vista: débito, pix, dinheiro.\nPara parcelado: crédito ou carnê.",
-                parse_mode="Markdown", reply_markup=main_menu_keyboard()
-            )
-        elif cmd == "menu_resumo":
-            await query.edit_message_text("📊 *Resumo Financeiro*\n\nUse */resumo* para ver o resumo do mês.", parse_mode="Markdown")
-        elif cmd == "menu_assinaturas":
-            await query.edit_message_text("📱 *Assinaturas*\n\nUse */assinatura add* para adicionar.\nEx: */assinatura add Netflix 50 10* (nome, valor, dia vencimento)", parse_mode="Markdown")
-        elif cmd == "menu_recorrentes":
-            await query.edit_message_text("🔄 *Recorrentes*\n\nUse */recorrente add* para adicionar.\nEx: */recorrente add Barbearia 50 quinzenal* (nome, valor, frequência)", parse_mode="Markdown")
-        elif cmd == "menu_parcelas":
-            user = get_user(update.effective_user.id)
-            parcelas = read_parcelas(user["spreadsheet_id"])
-            if not parcelas:
-                await query.edit_message_text("📅 Nenhum parcelamento. Use */parcela add*", parse_mode="Markdown"); return
-            ativas = [p for p in parcelas if p.get("ativo",True)]
-            if not ativas:
-                await query.edit_message_text("✅ Todos quitados!"); return
-            lines = [f"📅 *Parcelamentos Ativos ({len(ativas)})*\n"]
-            for p in ativas:
-                restantes = p["n_parcelas"] - p.get("pagas",0)
-                lines.append(f"• *{p['nome']}* — {p.get('pagas',0)}/{p['n_parcelas']} — R$ {p['valor_parcela']:,.2f}/mês | Restam {restantes}x = R$ {restantes * p['valor_parcela']:,.2f}")
-            await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
-        elif cmd == "menu_relatorio":
-            await query.edit_message_text("📊 *Resumo Financeiro*\n\nUse */resumo* para ver o resumo do mês.", parse_mode="Markdown")
-        elif cmd == "menu_insights":
-            await query.edit_message_text("📈 *Insights Financeiros*\n\nUse */insights* para ver análises inteligentes.", parse_mode="Markdown")
-        elif cmd == "menu_compras":
-            await query.edit_message_text("🛒 Use */compras* para ver a lista.\n*/compras add leite* — adicionar\n*/compras rm 1* — remover\n*/compras done* — limpar", parse_mode="Markdown")
-        elif cmd == "menu_desejos":
-            await query.edit_message_text("💡 *Lista de Desejos*\n\n*/compras desejo item* — adicionar à lista\n*/compras desejos* — ver lista", parse_mode="Markdown")
-        elif cmd == "menu_receita":
-            await query.edit_message_text("💵 Use */receita <valor> <descrição>*\nEx: */receita 500 freela*", parse_mode="Markdown")
-        elif cmd == "menu_perfil":
-            await query.edit_message_text("👤 Use */perfil* para ver ou */perfil renda 3000* para alterar.", parse_mode="Markdown")
-        elif cmd == "menu_relatorios":
-            await query.edit_message_text("📊 *Relatórios*\n\n*/resumo* — Resumo Financeiro\n*/insights* — Insights Financeiros", parse_mode="Markdown")
-        else:
-            await query.edit_message_text("✅ Funcionalidade em desenvolvimento. Use os comandos diretos.", reply_markup=main_menu_keyboard())
+    if cmd == "menu_financas":
+        # Sub-menu Finanças: Lançamentos | Parcelas | Assinaturas
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💸 Lançamentos", callback_data="menu_lancamentos"),
+             InlineKeyboardButton("📅 Parcelas", callback_data="menu_parcelas"),
+             InlineKeyboardButton("📱 Assinaturas", callback_data="menu_assinaturas")],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="menu_voltar")]
+        ])
+        await query.edit_message_text("💸 *Finanças*\n\nSelecione uma opção:", reply_markup=keyboard)
+
+    elif cmd == "menu_lancamentos":
+        await query.edit_message_text(
+            "💸 *Lançamentos do Mês*\n\n"
+            "Use */gasto* para modo guiado (passo a passo)\n"
+            "Use */g 50 mercado pix* para modo rápido\n\n"
+            "Pagamentos à vista: débito, pix, dinheiro\n"
+            "Pagamentos parcelados: crédito, carnê",
+            reply_markup=main_menu_keyboard()
+        )
+
+    elif cmd == "menu_parcelas":
+        user = get_user(update.effective_user.id)
+        parcelas = read_parcelas(user["spreadsheet_id"])
+        if not parcelas:
+            await query.edit_message_text("📅 Nenhum parcelamento. Use */parcela add*",
+                reply_markup=main_menu_keyboard())
+            return
+        ativas = [p for p in parcelas if p.get("ativo", True)]
+        if not ativas:
+            await query.edit_message_text("✅ Todos os parcelamentos estão quitados!",
+                reply_markup=main_menu_keyboard())
+            return
+        lines = [f"📅 *Parcelamentos Ativos ({len(ativas)})*\n"]
+        for p in ativas:
+            restantes = p["n_parcelas"] - p.get("pagas", 0)
+            saldo = restantes * p["valor_parcela"]
+            pagas = p.get("pagas", 0)
+            total = p["n_parcelas"]
+            pct = int(pagas / total * 100) if total > 0 else 0
+            bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+            lines.append(f"• *{p['nome']}* — R$ {p['valor_parcela']:,.2f}/mês")
+            lines.append(f"  {bar} {pagas}/{total} pagas | Restam {restantes}x")
+            lines.append(f"  Total: R$ {p['valor_total']:,.2f} | Saldo: R$ {saldo:,.2f}")
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+            reply_markup=main_menu_keyboard())
+
+    elif cmd == "menu_assinaturas":
+        user = get_user(update.effective_user.id)
+        # Ler assinaturas do arquivo fixos (legacy) por enquanto
+        fixos = read_fixos(user["spreadsheet_id"])
+        if not fixos or len(fixos) == 0:
+            await query.edit_message_text(
+                "📱 *Assinaturas (Mensalidades)*\n\n"
+                "Nenhuma assinatura cadastrada.\n\n"
+                "Use */gasto* para registrar um gasto como assinatura.\n"
+                "Ex: Ao registrar, responda 'SIM' para 'É assinatura?'",
+                reply_markup=main_menu_keyboard())
+            return
+        ativos = [f for f in fixos if f.get("ativo", True)]
+        total = sum(f.get("valor", 0) for f in ativos)
+        lines = [f"📱 *Assinaturas Ativas ({len(ativos)})*", f"💰 Total mensal: R$ {total:,.2f}\n"]
+        for f in ativos:
+            dia = f"dia {f.get('dia', '?')}" if f.get("dia") else ""
+            lines.append(f"• *{f.get('nome', '?')}* — R$ {f.get('valor', 0):,.2f} — {dia}")
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+            reply_markup=main_menu_keyboard())
+
+    elif cmd == "menu_relatorios":
+        # Sub-menu Relatórios: Resumo | Insights
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📊 Resumo Financeiro", callback_data="menu_resumo")],
+            [InlineKeyboardButton("📈 Insights Financeiros", callback_data="menu_insights")],
+            [InlineKeyboardButton("📄 Relatório Completo", callback_data="menu_relatorio")],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="menu_voltar")]
+        ])
+        await query.edit_message_text("📊 *Relatórios*\n\nSelecione uma opção:", reply_markup=keyboard)
+
+    elif cmd == "menu_resumo":
+        await query.edit_message_text("📊 *Carregando Resumo...*", parse_mode="Markdown")
+        await cmd_resumo(update, context)
+
+    elif cmd == "menu_insights":
+        await query.edit_message_text("📈 *Carregando Insights...*", parse_mode="Markdown")
+        await cmd_insights(update, context)
+
+    elif cmd == "menu_relatorio":
+        await query.edit_message_text("📄 *Carregando Relatório Completo...*", parse_mode="Markdown")
+        await cmd_relatorio(update, context)
+
+    elif cmd == "menu_compras":
+        await query.edit_message_text(
+            "🛒 *Compras & Desejos*\n\n"
+            "*/compras* — Ver lista de compras\n"
+            "*/compras add leite 2x* — Adicionar (com quantidade)\n"
+            "*/compras add mercado arroz* — Categoria: mercado\n"
+            "*/compras add online kindle 200* — Com preço\n"
+            "*/compras rm 1* — Remover item #1\n"
+            "*/compras comprado 1* — Marcar como comprado\n"
+            "*/compras desejo item* — Lista de desejos\n"
+            "*/compras done* — Limpar lista",
+            reply_markup=main_menu_keyboard()
+        )
+
+    elif cmd == "menu_perfil":
+        user = get_user(update.effective_user.id)
+        await query.edit_message_text(
+            f"👤 *Seu Perfil*\n\n"
+            f"📝 Nome: {user['name']}\n"
+            f"💰 Renda: R$ {user['income']:,.2f}\n"
+            f"💳 Cartões: {user.get('cards', 'nenhum')}\n"
+            f"🎯 Objetivo: {user.get('goal', '')}\n\n"
+            f"Para alterar: */perfil renda 3500*",
+            parse_mode="Markdown", reply_markup=main_menu_keyboard()
+        )
+
+    elif cmd == "menu_receita":
+        await query.edit_message_text(
+            "💵 *Receitas Extra*\n\n"
+            "Use */receita <valor> <descrição>*\n"
+            "Ex: /receita 500 freela\n"
+            "Ex: /receita 1500 bonus\n"
+            "Ex: /receita 200 ifood\n\n"
+            "💡 Dica: Registre todas as rendas extras para ter "
+            "uma visão completa do seu fluxo financeiro!",
+            parse_mode="Markdown", reply_markup=main_menu_keyboard()
+        )
+
+    elif cmd == "menu_voltar":
+        await query.edit_message_text("👇 O que deseja fazer agora?",
+            reply_markup=main_menu_keyboard())
+
+    else:
+        await query.edit_message_text("✅ Funcionalidade em desenvolvimento.",
+            reply_markup=main_menu_keyboard())
 
 
     # ═══════════════════════════════════════════════════════
@@ -2172,8 +2278,8 @@ async def budget_warning(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Erro budget_warning user {user['user_id']}: {e}")
 
-async def streak_reminder(context: ContextTypes.DEFAULT_TYPE):
-    """Lembrete de streak — todo dia às 20h BRT."""
+async def lembrete_registro(context: ContextTypes.DEFAULT_TYPE):
+    """Lembrete diário de registro de gastos — todo dia às 20h BRT."""
     users = get_all_users()
     today = datetime.now().strftime("%Y-%m-%d")
     for user in users:
@@ -2181,11 +2287,10 @@ async def streak_reminder(context: ContextTypes.DEFAULT_TYPE):
             if user.get("last_gasto_date") != today:
                 await context.bot.send_message(
                     user["user_id"],
-                    f"🔥 *{user['name']}, não esqueça de registrar seus gastos hoje!*\n"
-                    f"Streak atual: {user.get('streak',0)} dias. Não perca a sequência!",
+                    f"🔥 *{user['name']}, não esqueça de registrar seus gastos hoje!*",
                     parse_mode="Markdown")
         except Exception as e:
-            logger.warning(f"Erro streak_reminder user {user['user_id']}: {e}")
+            logger.warning(f"Erro lembrete user {user['user_id']}: {e}")
 
 async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
     """Cria aba do novo mês — dia 1 às 00:05 BRT."""
@@ -2258,8 +2363,8 @@ def main():
     # ── Notificações com JobQueue ──
     # Alerta de orçamento: todo dia às 10h BRT
     app.job_queue.run_daily(budget_warning, time=datetime.strptime("10:00", "%H:%M").time(), name="budget_warning")
-    # Lembrete streak: todo dia às 20h BRT
-    app.job_queue.run_daily(streak_reminder, time=datetime.strptime("20:00", "%H:%M").time(), name="streak_reminder")
+    # Lembrete diário: todo dia às 20h BRT
+    app.job_queue.run_daily(lembrete_registro, time=datetime.strptime("20:00", "%H:%M").time(), name="lembrete_registro")
     # Reset mensal: dia 1 às 00:05
     app.job_queue.run_daily(monthly_reset, time=datetime.strptime("00:05", "%H:%M").time(), days=(0,), name="monthly_reset")
     # Resumo semanal: segunda às 9h
