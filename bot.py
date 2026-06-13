@@ -926,9 +926,6 @@ async def gasto_obs_pular(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def gasto_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Modo rápido: /g 50 mercado alimentacao pix nubank"""
-
-async def gasto_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Modo rápido: /g 50 mercado alimentacao pix nubank"""
     if not ensure_user(update):
         await update.message.reply_text("Use /start primeiro.")
         return
@@ -1880,225 +1877,6 @@ async def cmd_compras(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ═══════════════════════════════════════════════════════
-# /perfil — Configurar Perfil
-# ═══════════════════════════════════════════════════════
-async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mostra perfil e permite editar renda."""
-    if not ensure_user(update):
-        await update.message.reply_text("Use /start primeiro.")
-        return
-    user = get_user(update.effective_user.id)
-    args = context.args
-    
-    if not args:
-        await update.message.reply_text(
-            f"👤 *Seu Perfil*\n\n"
-            f"📝 Nome: {user['name']}\n"
-            f"💰 Renda: R$ {user['income']:,.2f}\n"
-            f"💳 Cartões: {user.get('cards', 'nenhum')}\n"
-            f"🎯 Objetivo: {user.get('goal', '')}\n\n"
-            f"Para alterar sua renda: */perfil renda 3500*\n"
-            f"Para alterar nome: */perfil nome Caio Salles*\n"
-            f"Para alterar cartões: */perfil cards Nubank, Itau*",
-            parse_mode="Markdown", reply_markup=main_menu_keyboard()
-        )
-        return
-    
-    sub = args[0].lower()
-    if sub == "renda" and len(args) >= 2:
-        try:
-            nova_renda = float(args[1].replace(",", "."))
-        except ValueError:
-            await update.message.reply_text("❌ Valor inválido. Use: /perfil renda 3500")
-            return
-        upsert_user(update.effective_user.id, income=nova_renda)
-        save_user_to_master(update.effective_user.id, user.get("username",""), user.get("first_name",""),
-                           user["name"], nova_renda, user.get("cards",""), user.get("goal",""), user["spreadsheet_id"])
-        await update.message.reply_text(f"✅ Renda atualizada para R$ {nova_renda:,.2f}!", parse_mode="Markdown", reply_markup=main_menu_keyboard())
-    elif sub == "nome" and len(args) >= 2:
-        novo_nome = " ".join(args[1:])
-        upsert_user(update.effective_user.id, name=novo_nome)
-        await update.message.reply_text(f"✅ Nome atualizado para *{novo_nome}*!", parse_mode="Markdown", reply_markup=main_menu_keyboard())
-    elif sub == "cards" and len(args) >= 2:
-        novos_cards = " ".join(args[1:])
-        upsert_user(update.effective_user.id, cards=novos_cards)
-        await update.message.reply_text(f"✅ Cartões atualizados: *{novos_cards}*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
-    else:
-        await update.message.reply_text(
-            "Use: */perfil renda 3500*\n*/perfil nome Caio*\n*/perfil cards Nubank, Itau*",
-            parse_mode="Markdown"
-        )
-
-# ═══════════════════════════════════════════════════════
-# /receita — Registrar Renda Extra
-# ═══════════════════════════════════════════════════════
-async def cmd_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Registra uma receita extra na planilha."""
-    if not ensure_user(update):
-        await update.message.reply_text("Use /start primeiro.")
-        return
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text(
-            "💵 *Registrar Receita Extra*\n\n"
-            "Uso: */receita <valor> <descrição>*\n"
-            "Ex: */receita 500 freela*\n*/receita 1500 bonus*\n*/receita 200 ifood*",
-            parse_mode="Markdown"
-        )
-        return
-    
-    try:
-        valor = float(args[0].replace(",", "."))
-    except ValueError:
-        await update.message.reply_text("❌ Valor inválido. Ex: /receita 500 freela")
-        return
-    
-    desc = " ".join(args[1:])
-    user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
-    ym = datetime.now().strftime("%Y-%m")
-    get_or_create_month_sheet(sid, ym)
-    
-    # Add a row with type "RECEITA" instead of "CONSUMO"
-    row = [
-        datetime.now().strftime("%d/%m/%Y"),
-        desc, "RECEITA", "", "PIX",
-        valor, "", "SIM", "RECEITA", ""
-    ]
-    append_gasto(sid, ym, row)
-    
-    # Also ensure INCOME tab exists
-    svc = get_sheets_service()
-    meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
-    sheets_list = [s["properties"]["title"] for s in meta.get("sheets", [])]
-    if "RECEITAS" not in sheets_list:
-        svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={
-            "requests": [{"addSheet": {"properties": {"title": "RECEITAS"}}}]
-        }).execute()
-        svc.spreadsheets().values().update(
-            spreadsheetId=sid, range="RECEITAS!A1:E1",
-            valueInputOption="USER_ENTERED",
-            body={"values": [["DATA","DESCRIÇÃO","VALOR","CATEGORIA","OBS"]]}
-        ).execute()
-    
-    svc.spreadsheets().values().append(
-        spreadsheetId=sid, range="RECEITAS!A:E",
-        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
-        body={"values": [[datetime.now().strftime("%d/%m/%Y"), desc, valor, "EXTRA", ""]]}
-    ).execute()
-    
-    await update.message.reply_text(
-        f"💵 *Receita de R$ {valor:,.2f}* registrada!\n📝 {desc}",
-        parse_mode="Markdown", reply_markup=main_menu_keyboard()
-    )
-
-# ═══════════════════════════════════════════════════════
-# /compras — Lista de Compras
-# ═══════════════════════════════════════════════════════
-def get_db_compra():
-    path = get_db_path()
-    return path
-
-async def cmd_compras(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gerencia lista de compras."""
-    if not ensure_user(update):
-        await update.message.reply_text("Use /start primeiro.")
-        return
-    args = context.args
-    user_id = update.effective_user.id
-    path = get_db_compra()
-
-    if not args:
-        # Listar compras
-        with sqlite3.connect(path) as conn:
-            items = conn.execute(
-                "SELECT id, item FROM compras WHERE user_id=? AND comprado=0 ORDER BY criado_em",
-                (user_id,)
-            ).fetchall()
-        if not items:
-            await update.message.reply_text(
-                "🛒 *Lista de Compras*\n\n📭 Nenhum item na lista.\n"
-                "Use */compras add <item>* para adicionar.",
-                parse_mode="Markdown"
-            )
-            return
-        lines = ["🛒 *Lista de Compras*\n"]
-        for i, (item_id, item) in enumerate(items, 1):
-            # Get qty for this item
-            with sqlite3.connect(path) as conn2:
-                row = conn2.execute("SELECT qty FROM compras WHERE id=?", (item_id,)).fetchone()
-            qty_str = f" ({row[0]})" if row and row[0] and row[0] != "1" else ""
-            lines.append(f"{i}. {item}{qty_str}")
-        lines.append(f"\n📝 Total: {len(items)} itens")
-        lines.append("Use */compras rm <n>* para remover.")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
-
-    sub = args[0].lower()
-
-    if sub == "add" and len(args) >= 2:
-        item_args = args[1:]
-        qty = "1"
-        # Check for quantity: /compras add 2x leite or /compras add leite 2x
-        if item_args[0].lower().endswith('x') and item_args[0][:-1].isdigit():
-            qty = item_args[0][:-1]
-            item = " ".join(item_args[1:]) if len(item_args) > 1 else "item"
-        elif len(item_args) > 1 and item_args[-1].lower().endswith('x') and item_args[-1][:-1].isdigit():
-            qty = item_args[-1][:-1]
-            item = " ".join(item_args[:-1])
-        else:
-            item = " ".join(item_args)
-        with sqlite3.connect(path) as conn:
-            conn.execute(
-                "INSERT INTO compras (user_id, item, qty) VALUES (?, ?, ?)",
-                                    (user_id, item, qty)
-            )
-            conn.commit()
-        await update.message.reply_text(f"✅ Adicionado: *{item}*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
-
-    elif sub == "rm" and len(args) >= 2:
-        try:
-            idx = int(args[1]) - 1  # 1-indexed
-        except ValueError:
-            await update.message.reply_text("❌ Use: /compras rm <número>")
-            return
-        with sqlite3.connect(path) as conn:
-            items = conn.execute(
-                "SELECT id, item FROM compras WHERE user_id=? AND comprado=0 ORDER BY criado_em",
-                (user_id,)
-            ).fetchall()
-            if 0 <= idx < len(items):
-                item_id, item = items[idx]
-                conn.execute("DELETE FROM compras WHERE id=?", (item_id,))
-                conn.commit()
-                await update.message.reply_text(f"🗑️ Removido: *{item}*", parse_mode="Markdown", reply_markup=main_menu_keyboard())
-            else:
-                await update.message.reply_text(f"❌ Item #{args[1]} não encontrado. Use /compras para ver a lista.")
-
-    elif sub == "done":
-        with sqlite3.connect(path) as conn:
-            items = conn.execute(
-                "SELECT COUNT(*) FROM compras WHERE user_id=? AND comprado=0",
-                (user_id,)
-            ).fetchone()[0]
-            conn.execute(
-                "DELETE FROM compras WHERE user_id=? AND comprado=0",
-                (user_id,)
-            )
-            conn.commit()
-        await update.message.reply_text(f"✅ Lista de compras limpa! {items} itens removidos.", reply_markup=main_menu_keyboard())
-
-    else:
-        await update.message.reply_text(
-            "🛒 */compras* — Ver lista\n"
-            "*/compras add leite* — Adicionar item\n"
-            "*/compras rm 1* — Remover item #1\n"
-            "*/compras done* — Limpar lista (depois da compra)",
-            parse_mode="Markdown"
-        )
-
-# ═══════════════════════════════════════════════════════
-# MENU CALLBACKS
 # ═══════════════════════════════════════════════════════
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2147,7 +1925,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
             lines.append(f"• *{p['nome']}* — R$ {p['valor_parcela']:,.2f}/mês")
             lines.append(f"  {bar} {pagas}/{total} pagas | Restam {restantes}x")
-            lines.append(f"  Total: R$ {p['valor_total']:,.2f} | Saldo: R$ {saldo:,.2f}")
+            lines.append(f"  Total: R$ {p['total']:,.2f} | Saldo: R$ {saldo:,.2f}")
         await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
             reply_markup=main_menu_keyboard())
 
@@ -2184,14 +1962,20 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif cmd == "menu_resumo":
         await query.edit_message_text("📊 *Carregando Resumo...*", parse_mode="Markdown")
+        if update.message is None:
+            update.message = query.message
         await cmd_resumo(update, context)
 
     elif cmd == "menu_insights":
         await query.edit_message_text("📈 *Carregando Insights...*", parse_mode="Markdown")
+        if update.message is None:
+            update.message = query.message
         await cmd_insights(update, context)
 
     elif cmd == "menu_relatorio":
         await query.edit_message_text("📄 *Carregando Relatório Completo...*", parse_mode="Markdown")
+        if update.message is None:
+            update.message = query.message
         await cmd_relatorio(update, context)
 
     elif cmd == "menu_compras":
