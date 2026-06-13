@@ -67,7 +67,11 @@ def _load_month_data(spreadsheet_id: str, year_month: str) -> list[dict]:
     data (datetime|None), descricao, categoria, subcategoria, pagamento, valor (float)
     """
     range_str = f"{year_month}!A:F"
-    rows = read_range(spreadsheet_id, range_str)
+    try:
+        rows = read_range(spreadsheet_id, range_str)
+    except Exception as e:
+        logger.warning(f"Nao foi possivel ler aba {year_month}: {e}")
+        return []
     if not rows or len(rows) <= 1:
         return []
 
@@ -335,16 +339,15 @@ def _detect_monthly_economy(
     insights = []
     total_gastos = sum(r["valor"] for r in current_records)
 
-    # Tenta ler renda da aba RESUMO
+    # Tenta ler renda da aba RESUMO ou do perfil do usuário
     renda = 0.0
     try:
         resumo_rows = read_range(spreadsheet_id, f"{year_month}!H:J")
-        for row in resumo_rows:
-            if row and len(row) >= 2:
-                label = str(row[0]).strip().lower() if row[0] else ""
-                if "renda" in label or "salario" in label or "salário" in label:
-                    renda = parse_float(row[1])
-                    break
+        # Busca por renda nos registros carregados
+        for r in records:
+            if r.get("descricao", "").lower() in ["renda", "salario", "salário"] and r.get("valor", 0) > 0:
+                renda = r.get("valor", 0)
+                break
     except Exception:
         pass
 

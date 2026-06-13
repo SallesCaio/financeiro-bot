@@ -664,6 +664,9 @@ async def onboarding_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Valor inválido. Digite apenas números (ex: 3000)")
         return INCOME
+    if income <= 0:
+        await update.message.reply_text("❌ Renda deve ser maior que zero. Tente novamente.")
+        return INCOME
     context.user_data["onboarding"]["income"] = income
     await update.message.reply_text(
         "3️⃣ *Quais cartões você usa?*\n"
@@ -1588,6 +1591,9 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             nova_renda = float(args[1].replace(",", "."))
         except ValueError:
             await update.message.reply_text("❌ Valor inválido. Use: /perfil renda 3500")
+            return
+        if nova_renda <= 0:
+            await update.message.reply_text("❌ Renda deve ser maior que zero.")
             return
         upsert_user(update.effective_user.id, income=nova_renda)
         save_user_to_master(update.effective_user.id, user.get("username",""), user.get("first_name",""),
