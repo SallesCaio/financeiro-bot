@@ -16,10 +16,7 @@ KEYWORDS = {
         "refeicao", "almoco", "janta", "cafe da manhã", "lanchonete", "suco",
         "fruta", "verdura", "legume", "carne", "fruto", "leite", "queijo",
         "cerveja", "vinho", "chopp", "cachaca", "wisky", "drink", "bebida",
-        "agua", "gasolina", "combustivel", "uber", "taxi", "onibus", "metro",
-        "bilhete", "passagem", "transporte", "combustivel", "gas", "etanol",
-        "ipva", "multa", "estacionamento", "pedagio", "lavagem", "oleo",
-        "pneu", "revisao"
+        "agua", "gasolina", "combustivel", "uber", "taxi", "onibus", "bilhete", "passagem", "transporte", "combustivel", "gas", "ipva", "multa", "estacionamento", "pedagio", "lavagem", "pneu", "revisao"
     ],
     "mercado": [
         "mercado", "supermercado", "hipermercado", "atacado", "atacadao",
@@ -41,14 +38,12 @@ KEYWORDS = {
     "moto": [
         "moto", "motoca", "yamaha", "honda", "harley", "ducati", "bmw",
         "pneu moto", "oleo moto", "revisao moto", "peca moto", "acessorio moto",
-        "ipva moto", "seguro moto"
+        "ipva moto", "seguro moto", "gasolina", "combustivel", "gasolina moto", "combustivel moto"
     ],
     "transporte": [
         "uber", "taxi", "onibus", "metro", "trem", "ubereats",
-        "cabify", "99pop", "app旅行", "passagem", "bilhete",
-        "combustivel", "gasolina", "etanol", "gas", "diesel",
-        "ipva", "multa", "estacionamento", "pedagio", "lavagem",
-        "transporte", "trajeto", "corrida"
+        "cabify", "99pop", "app旅行", "passagem", "combustivel", "gasolina", "etanol", "gas", "diesel",
+        "ipva", "multa", "estacionamento", "pedagio", "transporte", "trajeto", "corrida"
     ],
     "pessoal": [
         "barbeiro", "cabeleireiro", "salao", "beleza", "cosmetico",
