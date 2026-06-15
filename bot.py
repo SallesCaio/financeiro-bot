@@ -385,21 +385,45 @@ def read_range(spreadsheet_id: str, range_str: str):
     return r.get("values", [])
 
 # ── FATURAS ──
+# Estrutura: CARTÃO | REF_MÊS | TOTAL | VENCIMENTO | PAGO | VALOR_PAGO | DATA_PAGAMENTO | OBS
+# Vencimento padrão: dia 08 de cada mês
+# REF_MÊS: YYYY-MM da fatura (mês de referência, não mês de pagamento)
+
+VENCIMENTO_DIA = 8  # Dia de vencimento de todas as faturas
+
+def _calc_vencimento(ref_month: str) -> str:
+    """Calcula data de vencimento: dia 08 do mês seguinte ao ref_month."""
+    y, m = map(int, ref_month.split("-"))
+    if m == 12:
+        next_m, next_y = 1, y + 1
+    else:
+        next_m, next_y = m + 1, y
+    return f"{VENCIMENTO_DIA:02d}/{next_m:02d}/{next_y}"
+
+def _calc_prox_ref_month(ref_month: str) -> str:
+    """Calcula o próximo mês de referência (para parcelamentos)."""
+    y, m = map(int, ref_month.split("-"))
+    if m == 12:
+        return f"{y + 1}-01"
+    return f"{y}-{m + 1:02d}"
+
 def ensure_fatura_sheet(spreadsheet_id: str):
-    svc = get_sheets_service()
-    meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-    if any(s["properties"]["title"] == "FATURAS" for s in meta.get("sheets", [])):
+    """Cria aba FATURAS se não existir. Usa cache."""
+    if _sheet_exists(spreadsheet_id, "FATURAS"):
         return
+    svc = get_sheets_service()
     svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
-        "requests": [{"addSheet": {"properties": {"title": "FATURAS", "gridProperties": {"rowCount": 1000, "columnCount": 8}}}}]
+        "requests": [{"addSheet": {"properties": {"title": "FATURAS", "gridProperties": {"rowCount": 100, "columnCount": 8}}}}]
     }).execute()
     svc.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id, range="FATURAS!A1:H1",
         valueInputOption="USER_ENTERED",
         body={"values": [["CARTÃO","REF_MÊS","TOTAL","VENCIMENTO","PAGO","VALOR_PAGO","DATA_PAGAMENTO","OBS"]]}
     ).execute()
+    _sheets_cache[f"{spreadsheet_id}:FATURAS"] = True
 
 def get_fatura_row(spreadsheet_id: str, cartao: str, ref_month: str):
+    """Busca fatura por cartão + mês de referência."""
     svc = get_sheets_service()
     ensure_fatura_sheet(spreadsheet_id)
     result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="FATURAS!A1:H50").execute()
@@ -410,6 +434,38 @@ def get_fatura_row(spreadsheet_id: str, cartao: str, ref_month: str):
         if len(row) >= 2 and row[0] == cartao and row[1] == ref_month:
             return idx, row
     return None
+
+def get_or_create_fatura(spreadsheet_id: str, cartao: str, ref_month: str):
+    """Busca fatura ou cria nova se não existir."""
+    existing = get_fatura_row(spreadsheet_id, cartao, ref_month)
+    if existing:
+        return existing
+    # Criar nova fatura
+    svc = get_sheets_service()
+    ensure_fatura_sheet(spreadsheet_id)
+    venc = _calc_vencimento(ref_month)
+    new_row = [cartao, ref_month, "0.00", venc, "NAO", "0.00", "", ""]
+    svc.spreadsheets().values().append(
+        spreadsheetId=spreadsheet_id, range="FATURAS!A1:H50",
+        valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
+        body={"values": [new_row]}
+    ).execute()
+    # Retornar a linha criada
+    return get_fatura_row(spreadsheet_id, cartao, ref_month)
+
+def update_fatura_total(spreadsheet_id: str, cartao: str, ref_month: str, valor_adicional: float):
+    """Soma valor ao TOTAL da fatura. Criar fatura se não existir."""
+    existing = get_or_create_fatura(spreadsheet_id, cartao, ref_month)
+    if not existing:
+        return
+    row_idx, row_data = existing
+    cur_total = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
+    novo_total = cur_total + valor_adicional
+    svc = get_sheets_service()
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id, range=f"FATURAS!C{row_idx}",
+        valueInputOption="USER_ENTERED", body={"values": [[f"{novo_total:.2f}"]]}
+    ).execute()
 
 def update_fatura_cell(spreadsheet_id: str, row_idx: int, col_letter: str, value):
     svc = get_sheets_service()
@@ -1083,26 +1139,26 @@ async def salvar_gasto(update: Update, context, obs: str):
     ]
     append_gasto(sid, ym, row)
 
-    # Atualizar fatura se crédito (apenas se não parcelado — parcelado atualiza depois)
-    if g["payment"] == "credito" and g.get("instalment_qty", 1) <= 1:
-        try:
-            cartao = g.get("card", "").upper()
-            if cartao:
-                ensure_fatura_sheet(sid)
-                existing = get_fatura_row(sid, cartao, ym)
-                if existing:
-                    row_idx, row_data = existing
-                    cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
-                    update_fatura_cell(sid, row_idx, "C", f"{cur + g['amount']:.2f}")
-                else:
-                    y, m = map(int, ym.split("-"))
-                    if m == 12: next_m, next_y = 1, y + 1
-                    else: next_m, next_y = m + 1, y
-                    last_day = calendar.monthrange(next_y, next_m)[1]
-                    due = f"{last_day:02d}/{next_m:02d}/{next_y}"
-                    append_fatura_row(sid, [cartao, ym, f"{g['amount']:.2f}", due, "NAO", "0.00", "", ""])
-        except Exception as e:
-            logger.error(f"Erro fatura: {e}")
+    # ── Atualizar Fatura (apenas crédito) ──
+    if g["payment"] == "credito":
+        cartao = g.get("card", "").upper()
+        if cartao:
+            qty = g.get("instalment_qty", 1)
+            if qty > 1:
+                # Parcelado: soma valor da parcela na fatura do mês atual
+                # e cria registros para os meses seguintes
+                valor_parcela = round(g["amount"] / qty, 2)
+                ref_month_atual = ym  # ex: 2026-06
+                # Adiciona parcela na fatura do mês atual
+                update_fatura_total(sid, cartao, ref_month_atual, valor_parcela)
+                # Cria faturas para os meses restantes do parcelamento
+                ref_mes = ref_month_atual
+                for i in range(1, qty):
+                    ref_mes = _calc_prox_ref_month(ref_mes)
+                    update_fatura_total(sid, cartao, ref_mes, valor_parcela)
+            else:
+                # À vista: soma valor completo na fatura do mês
+                update_fatura_total(sid, cartao, ym, g["amount"])
 
     # Se parcelado, adicionar parcelas na aba PARCELAMENTOS
     qty = g.get("instalment_qty", 1)
