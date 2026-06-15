@@ -673,7 +673,7 @@ def yes_no_keyboard(prefix: str):
 def main_menu_keyboard():
     """Menu principal com 5 categorias."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💸 Finanças", callback_data="menu_financas")],
+        [InlineKeyboardButton("💸 Lançamentos", callback_data="menu_financas")],
         [InlineKeyboardButton("📊 Relatórios", callback_data="menu_relatorios")],
         [InlineKeyboardButton("🛒 Compras", callback_data="menu_compras")],
         [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil")],
@@ -2084,42 +2084,53 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     if cmd == "menu_financas":
-        # Finanças → apenas Lançamentos (fluxo /gasto)
+        # Lançamentos → fluxo /gasto
         await query.edit_message_text(
-            "💸 *Finanças*\\n\\n"
-            "Use */gasto* para modo guiado (passo a passo)\\n"
-            "Use */g 50 mercado pix* para modo rápido\\n\\n"
-            "Pagamentos à vista: débito, pix, dinheiro\\n"
+            "💸 *Lançamentos*\n\n"
+            "Use */gasto* para modo guiado (passo a passo)\n"
+            "Use */g 50 mercado pix* para modo rápido\n\n"
+            "Pagamentos à vista: débito, pix, dinheiro\n"
             "Pagamentos parcelados: crédito, carnê",
             parse_mode="Markdown",
             reply_markup=main_menu_keyboard()
         )
 
     elif cmd == "menu_relatorios":
-        # Sub-menu Relatórios: Resumo | Insights
+        # Sub-menu Relatórios: Parcelas | Assinaturas | Lançamentos | Resumo | Completo
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📊 Resumo Financeiro", callback_data="menu_resumo")],
-            [InlineKeyboardButton("📈 Insights Financeiros", callback_data="menu_insights")],
+            [InlineKeyboardButton("📅 Parcelas", callback_data="menu_parcelas")],
+            [InlineKeyboardButton("📱 Assinaturas", callback_data="menu_assinaturas")],
+            [InlineKeyboardButton("💸 Lançamentos", callback_data="menu_lancamentos")],
+            [InlineKeyboardButton("📊 Resumo", callback_data="menu_resumo")],
             [InlineKeyboardButton("📄 Relatório Completo", callback_data="menu_relatorio")],
-            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="menu_voltar")]
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="menu_voltar")],
         ])
-        await query.edit_message_text("📊 *Relatórios*\n\nSelecione uma opção:", reply_markup=keyboard)
+        await query.edit_message_text("📊 *Relatórios*\n\nSelecione uma opção:", parse_mode="Markdown", reply_markup=keyboard)
+
+    elif cmd == "menu_parcelas":
+        _msg = query.message
+        _update = Update(update_id=0, message=_msg)
+        await cmd_relatorio_parcelamentos(_update, context)
+
+    elif cmd == "menu_assinaturas":
+        _msg = query.message
+        _update = Update(update_id=0, message=_msg)
+        await cmd_relatorio_fixos(_update, context)
+
+    elif cmd == "menu_lancamentos":
+        _msg = query.message
+        _update = Update(update_id=0, message=_msg)
+        await cmd_relatorio_resumo(_update, context)
 
     elif cmd == "menu_resumo":
-        # Criar um update fake com message para compatibilidade
         _msg = query.message
         _update = Update(update_id=0, message=_msg)
-        await cmd_resumo(_update, context)
-
-    elif cmd == "menu_insights":
-        _msg = query.message
-        _update = Update(update_id=0, message=_msg)
-        await cmd_insights(_update, context)
+        await cmd_relatorio_resumo(_update, context)
 
     elif cmd == "menu_relatorio":
         _msg = query.message
         _update = Update(update_id=0, message=_msg)
-        await cmd_relatorio(_update, context)
+        await cmd_relatorio_completo(_update, context)
 
     elif cmd == "menu_compras":
         await query.edit_message_text(
