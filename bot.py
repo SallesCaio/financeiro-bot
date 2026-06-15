@@ -1047,7 +1047,7 @@ async def salvar_gasto(update: Update, context, obs: str):
     user_id = update.effective_user.id
     user = get_user(user_id)
     sid = user["spreadsheet_id"]
-    ym = datetime.now().strftime("%Y-%m")
+    ym = datetime.now().strftime("%Y-%m-%m")
     get_or_create_month_sheet(sid, ym)
 
     row = [
@@ -1059,25 +1059,24 @@ async def salvar_gasto(update: Update, context, obs: str):
     ]
     append_gasto(sid, ym, row)
 
-    # Atualizar fatura se crédito
-    if g["payment"] == "credito":
+    # Atualizar fatura se crédito (apenas se não parcelado — parcelado atualiza depois)
+    if g["payment"] == "credito" and g.get("instalment_qty", 1) <= 1:
         try:
-            ref_month = ym
             cartao = g.get("card", "").upper()
             if cartao:
                 ensure_fatura_sheet(sid)
-                existing = get_fatura_row(sid, cartao, ref_month)
+                existing = get_fatura_row(sid, cartao, ym)
                 if existing:
                     row_idx, row_data = existing
                     cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
                     update_fatura_cell(sid, row_idx, "C", f"{cur + g['amount']:.2f}")
                 else:
-                    y, m = map(int, ref_month.split("-"))
+                    y, m = map(int, ym.split("-"))
                     if m == 12: next_m, next_y = 1, y + 1
                     else: next_m, next_y = m + 1, y
                     last_day = calendar.monthrange(next_y, next_m)[1]
                     due = f"{last_day:02d}/{next_m:02d}/{next_y}"
-                    append_fatura_row(sid, [cartao, ref_month, f"{g['amount']:.2f}", due, "NAO", "0.00","",""])
+                    append_fatura_row(sid, [cartao, ym, f"{g['amount']:.2f}", due, "NAO", "0.00", "", ""])
         except Exception as e:
             logger.error(f"Erro fatura: {e}")
 
@@ -1085,41 +1084,32 @@ async def salvar_gasto(update: Update, context, obs: str):
     qty = g.get("instalment_qty", 1)
     if qty > 1:
         try:
-            ensure_parcelas_sheet(sid)
             valor_parcela = round(g["amount"] / qty, 2)
-            # Calcular valores para nova estrutura A-H
-            pagas = 0
-            restantes = qty
-            valor_pago = 0.0
-            valor_restante = round(valor_parcela * qty, 2)
-            # Gerar COD simples (timestamp)
             cod = datetime.now().strftime("%Y%m%d%H%M%S")
-            append_parcela(sid, [cod, g["desc"], valor_parcela, qty, pagas, restantes, valor_pago, valor_restante])
+            # Criar aba PARCELAMENTOS se não existir
+            ensure_parcelas_sheet(sid)
+            # Adicionar linha
+            append_parcela(sid, [cod, g["desc"], valor_parcela, qty, 0, qty, 0.0, round(valor_parcela * qty, 2)])
             logger.info(f"Parcelamento criado: {g['desc']} {qty}x R$ {valor_parcela}")
+            # Atualizar fatura com valor da parcela
+            if g["payment"] == "credito":
+                cartao = g.get("card", "").upper()
+                if cartao:
+                    ensure_fatura_sheet(sid)
+                    existing = get_fatura_row(sid, cartao, ym)
+                    if existing:
+                        row_idx, row_data = existing
+                        cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
+                        update_fatura_cell(sid, row_idx, "C", f"{cur + valor_parcela:.2f}")
+                    else:
+                        y, m = map(int, ym.split("-"))
+                        if m == 12: next_m, next_y = 1, y + 1
+                        else: next_m, next_y = m + 1, y
+                        last_day = calendar.monthrange(next_y, next_m)[1]
+                        due = f"{last_day:02d}/{next_m:02d}/{next_y}"
+                        append_fatura_row(sid, [cartao, ym, f"{valor_parcela:.2f}", due, "NAO", "0.00", "", ""])
         except Exception as e:
             logger.error(f"Erro parcela: {e}")
-
-        # Atualizar fatura com valor da parcela (não o total)
-        try:
-            ref_month = ym
-            cartao = g.get("card", "").upper()
-            if cartao and g["payment"] == "credito":
-                ensure_fatura_sheet(sid)
-                existing = get_fatura_row(sid, cartao, ref_month)
-                if existing:
-                    row_idx, row_data = existing
-                    cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
-                    update_fatura_cell(sid, row_idx, "C", f"{cur + valor_parcela:.2f}")
-                else:
-                    y, m = map(int, ref_month.split("-"))
-                    if m == 12: next_m, next_y = 1, y + 1
-                    else: next_m, next_y = m + 1, y
-                    last_day = calendar.monthrange(next_y, next_m)[1]
-                    due = f"{last_day:02d}/{next_m:02d}/{next_y}"
-                    append_fatura_row(sid, [cartao, ref_month, f"{valor_parcela:.2f}", due, "NAO", "0.00", "", ""])
-                logger.info(f"Fatura atualizada: {cartao} +R$ {valor_parcela}")
-        except Exception as e:
-            logger.error(f"Erro fatura parcelada: {e}")
 
     # Se assinatura, adicionar na aba FIXOS
     if g.get("is_subscription"):
@@ -1131,12 +1121,13 @@ async def salvar_gasto(update: Update, context, obs: str):
         except Exception as e:
             logger.error(f"Erro fixo: {e}")
 
-    # Atualizar contador de gastos
+    # Atualizar contador
     today = datetime.now().strftime("%Y-%m-%d")
     last = user.get("last_gasto_date", "")
     gastos_count = (user.get("gastos_count", 0) or 0) + 1
-
     upsert_user(user_id, last_gasto_date=today, gastos_count=gastos_count)
+
+    # Mensagem de confirmação
     msg_parts = [
         f"✅ *R$ {g['amount']:,.2f}* — {g['desc']}",
         f"📂 {CATEGORIES.get(g['category'], g['category'])}",
@@ -1144,15 +1135,19 @@ async def salvar_gasto(update: Update, context, obs: str):
     ]
     if qty > 1:
         msg_parts.append(f"📅 Parcelado em {qty}x de R$ {round(g['amount']/qty, 2):,.2f}")
-    if obs: msg_parts.append(f"📝 {obs}")
+    if obs:
+        msg_parts.append(f"📝 {obs}")
 
-    if update.callback_query:
-        await update.callback_query.edit_message_text("\n".join(msg_parts), parse_mode="Markdown")
-    else:
-        await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
-    await (update.callback_query if update.callback_query else update.message).reply_text(
-        "👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard()
-    )
+    # Enviar confirmação + menu
+    try:
+        if update.callback_query:
+            await update.callback_query.edit_message_text("\n".join(msg_parts), parse_mode="Markdown")
+            await query.message.reply_text("👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard())
+        else:
+            await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
+            await update.message.reply_text("👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard())
+    except Exception as e:
+        logger.error(f"Erro ao enviar confirmação: {e}")
 
 # ═══════════════════════════════════════════════════════
 # COMANDOS /resumo, /limite, /novomes, /fatura, /pagar_fatura
@@ -1750,7 +1745,11 @@ async def cmd_receita(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     desc = " ".join(args[1:])
     user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
+    if not user:
+        await update.message.reply_text("❌ User não encontrado. Use /start."); return
+    sid = user.get("spreadsheet_id", "")
+    if not sid:
+        await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     ym = datetime.now().strftime("%Y-%m")
     get_or_create_month_sheet(sid, ym)
     
@@ -1796,7 +1795,11 @@ async def cmd_insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Use /start primeiro.")
         return
     user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
+    if not user:
+        await update.message.reply_text("❌ User não encontrado. Use /start."); return
+    sid = user.get("spreadsheet_id", "")
+    if not sid:
+        await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     ym = datetime.now().strftime("%Y-%m")
     
     try:
@@ -1944,7 +1947,11 @@ async def cmd_relatorio_parcelamentos(update: Update, context: ContextTypes.DEFA
     if not ensure_user(update):
         await update.message.reply_text("Use /start primeiro."); return
     user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
+    if not user:
+        await update.message.reply_text("❌ User não encontrado. Use /start."); return
+    sid = user.get("spreadsheet_id", "")
+    if not sid:
+        await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     try:
         parcelas = read_parcelas(sid)
     except Exception as e:
@@ -1974,7 +1981,11 @@ async def cmd_relatorio_fixos(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not ensure_user(update):
         await update.message.reply_text("Use /start primeiro."); return
     user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
+    if not user:
+        await update.message.reply_text("❌ User não encontrado. Use /start."); return
+    sid = user.get("spreadsheet_id", "")
+    if not sid:
+        await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     try:
         fixos = read_fixos(sid)
     except Exception as e:
@@ -1999,7 +2010,11 @@ async def cmd_relatorio_resumo(update: Update, context: ContextTypes.DEFAULT_TYP
     if not ensure_user(update):
         await update.message.reply_text("Use /start primeiro."); return
     user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
+    if not user:
+        await update.message.reply_text("❌ User não encontrado. Use /start."); return
+    sid = user.get("spreadsheet_id", "")
+    if not sid:
+        await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     ym = datetime.now().strftime("%Y-%m")
     try:
         data = read_range(sid, f"{ym}!A1:J500")
@@ -2032,7 +2047,11 @@ async def cmd_relatorio_completo(update: Update, context: ContextTypes.DEFAULT_T
     if not ensure_user(update):
         await update.message.reply_text("Use /start primeiro."); return
     user = get_user(update.effective_user.id)
-    sid = user["spreadsheet_id"]
+    if not user:
+        await update.message.reply_text("❌ User não encontrado. Use /start."); return
+    sid = user.get("spreadsheet_id", "")
+    if not sid:
+        await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     ym = datetime.now().strftime("%Y-%m")
     income = user.get("income", 0)
 
