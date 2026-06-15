@@ -429,20 +429,11 @@ def append_fatura_row(spreadsheet_id: str, row: list):
 
 # ── FIXOS ──
 def ensure_fixos_sheet(spreadsheet_id: str):
-    """Cria/recria aba FIXOS com estrutura limpa A-F."""
+    """Cria aba FIXOS se não existir. NÃO recria se já existir."""
     svc = get_sheets_service()
     meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-    sheets = [s["properties"]["title"] for s in meta.get("sheets", [])]
-    if "FIXOS" in sheets:
-        sheet_id = None
-        for s in meta["sheets"]:
-            if s["properties"]["title"] == "FIXOS":
-                sheet_id = s["properties"]["sheetId"]
-                break
-        if sheet_id is not None:
-            svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
-                "requests": [{"deleteSheet": {"sheetId": sheet_id}}]
-            }).execute()
+    if any(s["properties"]["title"] == "FIXOS" for s in meta.get("sheets", [])):
+        return  # Já existe
     svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
         "requests": [{"addSheet": {"properties": {"title": "FIXOS", "gridProperties": {"rowCount": 500, "columnCount": 6}}}}]
     }).execute()
@@ -482,21 +473,12 @@ def append_fixo(spreadsheet_id: str, row: list):
 
 # ── PARCELAMENTOS ──
 def ensure_parcelas_sheet(spreadsheet_id: str):
-    """Cria/recria aba PARCELAMENTOS com estrutura A-H."""
+    """Cria aba PARCELAMENTOS se não existir. NÃO recria se já existir."""
     svc = get_sheets_service()
     meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
     sheets = [s["properties"]["title"] for s in meta.get("sheets", [])]
     if "PARCELAMENTOS" in sheets:
-        # Deleta aba antiga para recriar com nova estrutura
-        sheet_id = None
-        for s in meta["sheets"]:
-            if s["properties"]["title"] == "PARCELAMENTOS":
-                sheet_id = s["properties"]["sheetId"]
-                break
-        if sheet_id is not None:
-            svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
-                "requests": [{"deleteSheet": {"sheetId": sheet_id}}]
-            }).execute()
+        return  # Já existe, não faz nada
     # Criar nova aba com 8 colunas
     svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
         "requests": [{"addSheet": {"properties": {"title": "PARCELAMENTOS", "gridProperties": {"rowCount": 500, "columnCount": 8}}}}]
