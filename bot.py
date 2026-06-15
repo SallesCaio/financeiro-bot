@@ -1087,10 +1087,39 @@ async def salvar_gasto(update: Update, context, obs: str):
         try:
             ensure_parcelas_sheet(sid)
             valor_parcela = round(g["amount"] / qty, 2)
-            prox_venc = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
-            append_parcela(sid, [g["desc"], g["amount"], qty, valor_parcela, g["category"], "0", prox_venc, "SIM"])
+            # Calcular valores para nova estrutura A-H
+            pagas = 0
+            restantes = qty
+            valor_pago = 0.0
+            valor_restante = round(valor_parcela * qty, 2)
+            # Gerar COD simples (timestamp)
+            cod = datetime.now().strftime("%Y%m%d%H%M%S")
+            append_parcela(sid, [cod, g["desc"], valor_parcela, qty, pagas, restantes, valor_pago, valor_restante])
+            logger.info(f"Parcelamento criado: {g['desc']} {qty}x R$ {valor_parcela}")
         except Exception as e:
             logger.error(f"Erro parcela: {e}")
+
+        # Atualizar fatura com valor da parcela (não o total)
+        try:
+            ref_month = ym
+            cartao = g.get("card", "").upper()
+            if cartao and g["payment"] == "credito":
+                ensure_fatura_sheet(sid)
+                existing = get_fatura_row(sid, cartao, ref_month)
+                if existing:
+                    row_idx, row_data = existing
+                    cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
+                    update_fatura_cell(sid, row_idx, "C", f"{cur + valor_parcela:.2f}")
+                else:
+                    y, m = map(int, ref_month.split("-"))
+                    if m == 12: next_m, next_y = 1, y + 1
+                    else: next_m, next_y = m + 1, y
+                    last_day = calendar.monthrange(next_y, next_m)[1]
+                    due = f"{last_day:02d}/{next_m:02d}/{next_y}"
+                    append_fatura_row(sid, [cartao, ref_month, f"{valor_parcela:.2f}", due, "NAO", "0.00", "", ""])
+                logger.info(f"Fatura atualizada: {cartao} +R$ {valor_parcela}")
+        except Exception as e:
+            logger.error(f"Erro fatura parcelada: {e}")
 
     # Se assinatura, adicionar na aba FIXOS
     if g.get("is_subscription"):
@@ -1937,6 +1966,7 @@ async def cmd_relatorio_parcelamentos(update: Update, context: ContextTypes.DEFA
     lines.append(f"💰 *Total Pago:* R$ {total_pago:,.2f}")
     lines.append(f"💳 *Total Restante:* R$ {total_restante:,.2f}")
     lines.append(f"📊 *Total Geral:* R$ {total_pago + total_restante:,.2f}")
+    lines.append(f"\n📊 Planilha: https://docs.google.com/spreadsheets/d/{sid}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 async def cmd_relatorio_fixos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1961,6 +1991,7 @@ async def cmd_relatorio_fixos(update: Update, context: ContextTypes.DEFAULT_TYPE
             lines.append(f"  _{f['obs']}_")
     lines.append(f"\n💰 *Total mensal:* R$ {total:,.2f}")
     lines.append(f"📊 *Total anual (est.):* R$ {total * 12:,.2f}")
+    lines.append(f"\n📊 Planilha: https://docs.google.com/spreadsheets/d/{sid}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 async def cmd_relatorio_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1993,6 +2024,7 @@ async def cmd_relatorio_resumo(update: Update, context: ContextTypes.DEFAULT_TYP
         pct = val / total * 100 if total > 0 else 0
         bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
         lines.append(f"{bar} {cat[:15]}: R$ {val:,.2f} ({pct:.0f}%)")
+    lines.append(f"\n📊 Planilha: https://docs.google.com/spreadsheets/d/{sid}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 async def cmd_relatorio_completo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2065,6 +2097,7 @@ async def cmd_relatorio_completo(update: Update, context: ContextTypes.DEFAULT_T
     if income > 0:
         lines.append(f"📈 % da renda comprometida: {total_comprometido/income*100:.0f}%")
         lines.append(f"💰 Saldo livre: R$ {income - total_comprometido:,.2f}")
+    lines.append(f"\n📊 Planilha: https://docs.google.com/spreadsheets/d/{sid}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
