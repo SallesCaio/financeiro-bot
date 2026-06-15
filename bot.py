@@ -2083,6 +2083,14 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+    # Helper para criar update fake com effective_user para comandos via callback
+    def _fake_update_for_command():
+        _msg = query.message
+        _user = query.from_user
+        _upd = Update(update_id=0, message=_msg)
+        _upd._effective_user = _user
+        return _upd
+
     if cmd == "menu_financas":
         # Lançamentos → fluxo /gasto
         await query.edit_message_text(
@@ -2108,29 +2116,19 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📊 *Relatórios*\n\nSelecione uma opção:", parse_mode="Markdown", reply_markup=keyboard)
 
     elif cmd == "menu_parcelas":
-        _msg = query.message
-        _update = Update(update_id=0, message=_msg)
-        await cmd_relatorio_parcelamentos(_update, context)
+        await cmd_relatorio_parcelamentos(_fake_update_for_command(), context)
 
     elif cmd == "menu_assinaturas":
-        _msg = query.message
-        _update = Update(update_id=0, message=_msg)
-        await cmd_relatorio_fixos(_update, context)
+        await cmd_relatorio_fixos(_fake_update_for_command(), context)
 
     elif cmd == "menu_lancamentos":
-        _msg = query.message
-        _update = Update(update_id=0, message=_msg)
-        await cmd_relatorio_resumo(_update, context)
+        await cmd_relatorio_resumo(_fake_update_for_command(), context)
 
     elif cmd == "menu_resumo":
-        _msg = query.message
-        _update = Update(update_id=0, message=_msg)
-        await cmd_relatorio_resumo(_update, context)
+        await cmd_relatorio_resumo(_fake_update_for_command(), context)
 
     elif cmd == "menu_relatorio":
-        _msg = query.message
-        _update = Update(update_id=0, message=_msg)
-        await cmd_relatorio_completo(_update, context)
+        await cmd_relatorio_completo(_fake_update_for_command(), context)
 
     elif cmd == "menu_compras":
         await query.edit_message_text(
