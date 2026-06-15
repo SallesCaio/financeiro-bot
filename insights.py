@@ -339,12 +339,10 @@ def _detect_monthly_economy(
     insights = []
     total_gastos = sum(r["valor"] for r in current_records)
 
-    # Tenta ler renda da aba RESUMO ou do perfil do usuário
+    # Tenta ler renda da aba RESUMO ou dos registros do mês
     renda = 0.0
     try:
-        resumo_rows = read_range(spreadsheet_id, f"{year_month}!H:J")
-        # Busca por renda nos registros carregados
-        for r in records:
+        for r in current_records:
             if r.get("descricao", "").lower() in ["renda", "salario", "salário"] and r.get("valor", 0) > 0:
                 renda = r.get("valor", 0)
                 break

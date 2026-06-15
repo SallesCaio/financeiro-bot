@@ -1967,22 +1967,20 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📊 *Relatórios*\n\nSelecione uma opção:", reply_markup=keyboard)
 
     elif cmd == "menu_resumo":
-        await query.edit_message_text("📊 *Carregando Resumo...*", parse_mode="Markdown")
-        if update.message is None:
-            update.message = query.message
-        await cmd_resumo(update, context)
+        # Criar um update fake com message para compatibilidade
+        _msg = query.message
+        _update = Update(update_id=0, message=_msg)
+        await cmd_resumo(_update, context)
 
     elif cmd == "menu_insights":
-        await query.edit_message_text("📈 *Carregando Insights...*", parse_mode="Markdown")
-        if update.message is None:
-            update.message = query.message
-        await cmd_insights(update, context)
+        _msg = query.message
+        _update = Update(update_id=0, message=_msg)
+        await cmd_insights(_update, context)
 
     elif cmd == "menu_relatorio":
-        await query.edit_message_text("📄 *Carregando Relatório Completo...*", parse_mode="Markdown")
-        if update.message is None:
-            update.message = query.message
-        await cmd_relatorio(update, context)
+        _msg = query.message
+        _update = Update(update_id=0, message=_msg)
+        await cmd_relatorio(_update, context)
 
     elif cmd == "menu_compras":
         await query.edit_message_text(
