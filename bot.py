@@ -1123,111 +1123,85 @@ async def gasto_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await salvar_gasto(update, context, "")
 
 async def salvar_gasto(update: Update, context, obs: str):
-    g = context.user_data["gasto"]
-    user_id = update.effective_user.id
-    user = get_user(user_id)
-    sid = user["spreadsheet_id"]
-    ym = datetime.now().strftime("%Y-%m-%m")
-    get_or_create_month_sheet(sid, ym)
+    try:
+        g = context.user_data["gasto"]
+        user_id = update.effective_user.id
+        user = get_user(user_id)
+        if not user:
+            await update.message.reply_text("❌ User não encontrado. Use /start.")
+            return
+        sid = user.get("spreadsheet_id", "")
+        if not sid:
+            await update.message.reply_text("❌ Planilha não configurada. Use /start.")
+            return
+        ym = datetime.now().strftime("%Y-%m")
+        get_or_create_month_sheet(sid, ym)
 
-    row = [
-        datetime.now().strftime("%d/%m/%Y"),
-        g["desc"], CATEGORIES.get(g["category"], g["category"]).upper(), "",
-        PAYMENT_METHODS.get(g["payment"], g["payment"]).upper(),
-        g["amount"], g.get("card", "").upper(),
-        g.get("necessary", "NÃO"), "CONSUMO", obs
-    ]
-    append_gasto(sid, ym, row)
+        row = [
+            datetime.now().strftime("%d/%m/%Y"),
+            g["desc"], CATEGORIES.get(g["category"], g["category"]).upper(), "",
+            PAYMENT_METHODS.get(g["payment"], g["payment"]).upper(),
+            g["amount"], g.get("card", "").upper(),
+            g.get("necessary", "NÃO"), "CONSUMO", obs
+        ]
+        append_gasto(sid, ym, row)
 
-    # ── Atualizar Fatura (apenas crédito) ──
-    if g["payment"] == "credito":
-        cartao = g.get("card", "").upper()
-        if cartao:
-            qty = g.get("instalment_qty", 1)
-            if qty > 1:
-                # Parcelado: soma valor da parcela na fatura do mês atual
-                # e cria registros para os meses seguintes
-                valor_parcela = round(g["amount"] / qty, 2)
-                ref_month_atual = ym  # ex: 2026-06
-                # Adiciona parcela na fatura do mês atual
-                update_fatura_total(sid, cartao, ref_month_atual, valor_parcela)
-                # Cria faturas para os meses restantes do parcelamento
-                ref_mes = ref_month_atual
-                for i in range(1, qty):
-                    ref_mes = _calc_prox_ref_month(ref_mes)
+        # ── Atualizar Fatura (apenas crédito) ──
+        if g["payment"] == "credito":
+            cartao = g.get("card", "").upper()
+            if cartao:
+                qty = g.get("instalment_qty", 1)
+                if qty > 1:
+                    valor_parcela = round(g["amount"] / qty, 2)
+                    ref_mes = ym
                     update_fatura_total(sid, cartao, ref_mes, valor_parcela)
-            else:
-                # À vista: soma valor completo na fatura do mês
-                update_fatura_total(sid, cartao, ym, g["amount"])
+                    for i in range(1, qty):
+                        ref_mes = _calc_prox_ref_month(ref_mes)
+                        update_fatura_total(sid, cartao, ref_mes, valor_parcela)
+                else:
+                    update_fatura_total(sid, cartao, ym, g["amount"])
 
-    # Se parcelado, adicionar parcelas na aba PARCELAMENTOS
-    qty = g.get("instalment_qty", 1)
-    if qty > 1:
-        try:
+        # ── Parcelamento ──
+        qty = g.get("instalment_qty", 1)
+        if qty > 1:
             valor_parcela = round(g["amount"] / qty, 2)
             cod = datetime.now().strftime("%Y%m%d%H%M%S")
-            # Criar aba PARCELAMENTOS se não existir
             ensure_parcelas_sheet(sid)
-            # Adicionar linha
             append_parcela(sid, [cod, g["desc"], valor_parcela, qty, 0, qty, 0.0, round(valor_parcela * qty, 2)])
-            logger.info(f"Parcelamento criado: {g['desc']} {qty}x R$ {valor_parcela}")
-            # Atualizar fatura com valor da parcela
-            if g["payment"] == "credito":
-                cartao = g.get("card", "").upper()
-                if cartao:
-                    ensure_fatura_sheet(sid)
-                    existing = get_fatura_row(sid, cartao, ym)
-                    if existing:
-                        row_idx, row_data = existing
-                        cur = parse_float(row_data[2]) if len(row_data) > 2 and row_data[2] else 0.0
-                        update_fatura_cell(sid, row_idx, "C", f"{cur + valor_parcela:.2f}")
-                    else:
-                        y, m = map(int, ym.split("-"))
-                        if m == 12: next_m, next_y = 1, y + 1
-                        else: next_m, next_y = m + 1, y
-                        last_day = calendar.monthrange(next_y, next_m)[1]
-                        due = f"{last_day:02d}/{next_m:02d}/{next_y}"
-                        append_fatura_row(sid, [cartao, ym, f"{valor_parcela:.2f}", due, "NAO", "0.00", "", ""])
-        except Exception as e:
-            logger.error(f"Erro parcela: {e}")
 
-    # Se assinatura, adicionar na aba FIXOS
-    if g.get("is_subscription"):
-        try:
+        # ── Fixos (Assinaturas) ──
+        if g.get("is_subscription"):
             ensure_fixos_sheet(sid)
             sub_name = g.get("subscription_name", g["desc"])
             sub_valor = g.get("subscription_valor", g["amount"])
             append_fixo(sid, [sub_name, sub_valor, str(datetime.now().day), g["category"], "SIM", ""])
-        except Exception as e:
-            logger.error(f"Erro fixo: {e}")
 
-    # Atualizar contador
-    today = datetime.now().strftime("%Y-%m-%d")
-    last = user.get("last_gasto_date", "")
-    gastos_count = (user.get("gastos_count", 0) or 0) + 1
-    upsert_user(user_id, last_gasto_date=today, gastos_count=gastos_count)
+        # ── Contador ──
+        today = datetime.now().strftime("%Y-%m-%d")
+        last = user.get("last_gasto_date", "")
+        gastos_count = (user.get("gastos_count", 0) or 0) + 1
+        upsert_user(user_id, last_gasto_date=today, gastos_count=gastos_count)
 
-    # Mensagem de confirmação
-    msg_parts = [
-        f"✅ *R$ {g['amount']:,.2f}* — {g['desc']}",
-        f"📂 {CATEGORIES.get(g['category'], g['category'])}",
-        f"💳 {PAYMENT_METHODS.get(g['payment'], g['payment'])}",
-    ]
-    if qty > 1:
-        msg_parts.append(f"📅 Parcelado em {qty}x de R$ {round(g['amount']/qty, 2):,.2f}")
-    if obs:
-        msg_parts.append(f"📝 {obs}")
+        # ── Confirmação ──
+        msg_parts = [
+            f"✅ *R$ {g['amount']:,.2f}* — {g['desc']}",
+            f"📂 {CATEGORIES.get(g['category'], g['category'])}",
+            f"💳 {PAYMENT_METHODS.get(g['payment'], g['payment'])}",
+        ]
+        if qty > 1:
+            msg_parts.append(f"📅 Parcelado em {qty}x de R$ {round(g['amount']/qty, 2):,.2f}")
+        if obs:
+            msg_parts.append(f"📝 {obs}")
 
-    # Enviar confirmação + menu
-    try:
-        if update.callback_query:
-            await update.callback_query.edit_message_text("\n".join(msg_parts), parse_mode="Markdown")
-            await query.message.reply_text("👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard())
-        else:
-            await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
-            await update.message.reply_text("👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard())
+        await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
+        await update.message.reply_text("👇 O que deseja fazer agora?", reply_markup=main_menu_keyboard())
+
     except Exception as e:
-        logger.error(f"Erro ao enviar confirmação: {e}")
+        logger.error(f"Erro salvar_gasto: {e}", exc_info=True)
+        try:
+            await update.message.reply_text("⚠️ Ocorreu um erro. Tente novamente ou use /start.")
+        except Exception:
+            pass
 
 # ═══════════════════════════════════════════════════════
 # COMANDOS /resumo, /limite, /novomes, /fatura, /pagar_fatura
