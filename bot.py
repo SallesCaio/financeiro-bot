@@ -2067,6 +2067,11 @@ async def cmd_relatorio_completo(update: Update, context: ContextTypes.DEFAULT_T
         lines.append(f"💰 Saldo livre: R$ {income - total_comprometido:,.2f}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
+
+# ═══════════════════════════════════════════════════════
+# MENU HANDLER — Callbacks dos botões inline
+# ═══════════════════════════════════════════════════════
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     cmd = query.data
