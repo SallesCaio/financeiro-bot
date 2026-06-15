@@ -402,7 +402,7 @@ def ensure_fatura_sheet(spreadsheet_id: str):
 def get_fatura_row(spreadsheet_id: str, cartao: str, ref_month: str):
     svc = get_sheets_service()
     ensure_fatura_sheet(spreadsheet_id)
-    result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="FATURAS!A:H").execute()
+    result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="FATURAS!A1:H50").execute()
     values = result.get("values", [])
     if not values:
         return None
@@ -422,7 +422,7 @@ def append_fatura_row(spreadsheet_id: str, row: list):
     svc = get_sheets_service()
     ensure_fatura_sheet(spreadsheet_id)
     svc.spreadsheets().values().append(
-        spreadsheetId=spreadsheet_id, range="FATURAS!A:H",
+        spreadsheetId=spreadsheet_id, range="FATURAS!A1:H50",
         valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
         body={"values": [row]}
     ).execute()
@@ -446,7 +446,7 @@ def ensure_fixos_sheet(spreadsheet_id: str):
 def read_fixos(spreadsheet_id: str) -> list:
     svc = get_sheets_service()
     ensure_fixos_sheet(spreadsheet_id)
-    result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="FIXOS!A:F").execute()
+    result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="FIXOS!A1:F50").execute()
     rows = result.get("values", [])
     if len(rows) <= 1:
         return []
@@ -466,33 +466,75 @@ def append_fixo(spreadsheet_id: str, row: list):
     svc = get_sheets_service()
     ensure_fixos_sheet(spreadsheet_id)
     svc.spreadsheets().values().append(
-        spreadsheetId=spreadsheet_id, range="FIXOS!A:F",
+        spreadsheetId=spreadsheet_id, range="FIXOS!A1:F50",
         valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
         body={"values": [row]}
     ).execute()
 
 # ── PARCELAMENTOS ──
-def ensure_parcelas_sheet(spreadsheet_id: str):
-    """Cria aba PARCELAMENTOS se não existir. NÃO recria se já existir."""
+# Cache global de abas já verificadas (evita chamadas API repetidas)
+_sheets_cache = {}
+
+def _sheet_exists(spreadsheet_id, sheet_name):
+    """Verifica se aba existe usando cache."""
+    key = f"{spreadsheet_id}:{sheet_name}"
+    if key in _sheets_cache:
+        return _sheets_cache[key]
     svc = get_sheets_service()
     meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-    sheets = [s["properties"]["title"] for s in meta.get("sheets", [])]
-    if "PARCELAMENTOS" in sheets:
-        return  # Já existe, não faz nada
-    # Criar nova aba com 8 colunas
+    exists = any(s["properties"]["title"] == sheet_name for s in meta.get("sheets", []))
+    _sheets_cache[key] = exists
+    return exists
+
+def ensure_parcelas_sheet(spreadsheet_id: str):
+    """Cria aba PARCELAMENTOS se não existir. Usa cache."""
+    if _sheet_exists(spreadsheet_id, "PARCELAMENTOS"):
+        return
+    svc = get_sheets_service()
     svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
-        "requests": [{"addSheet": {"properties": {"title": "PARCELAMENTOS", "gridProperties": {"rowCount": 500, "columnCount": 8}}}}]
+        "requests": [{"addSheet": {"properties": {"title": "PARCELAMENTOS", "gridProperties": {"rowCount": 100, "columnCount": 8}}}}]
     }).execute()
     svc.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id, range="PARCELAMENTOS!A1:H1",
         valueInputOption="USER_ENTERED",
         body={"values": [["COD","DESCRICAO","VALOR_PARCELA","TOTAL_PARCELAS","PAGAS","RESTANTES","VALOR_PAGO","VALOR_RESTANTE"]]}
     ).execute()
+    _sheets_cache[f"{spreadsheet_id}:PARCELAMENTOS"] = True
+
+def ensure_fixos_sheet(spreadsheet_id: str):
+    """Cria aba FIXOS se não existir. Usa cache."""
+    if _sheet_exists(spreadsheet_id, "FIXOS"):
+        return
+    svc = get_sheets_service()
+    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
+        "requests": [{"addSheet": {"properties": {"title": "FIXOS", "gridProperties": {"rowCount": 100, "columnCount": 6}}}}]
+    }).execute()
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id, range="FIXOS!A1:F1",
+        valueInputOption="USER_ENTERED",
+        body={"values": [["NOME","VALOR","DIA_VENCIMENTO","CATEGORIA","ATIVO","OBS"]]}
+    ).execute()
+    _sheets_cache[f"{spreadsheet_id}:FIXOS"] = True
+
+def ensure_fatura_sheet(spreadsheet_id: str):
+    """Cria aba FATURAS se não existir. Usa cache."""
+    if _sheet_exists(spreadsheet_id, "FATURAS"):
+        return
+    svc = get_sheets_service()
+    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
+        "requests": [{"addSheet": {"properties": {"title": "FATURAS", "gridProperties": {"rowCount": 100, "columnCount": 8}}}}]
+    }).execute()
+    svc.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id, range="FATURAS!A1:H1",
+        valueInputOption="USER_ENTERED",
+        body={"values": [["CARTÃO","REF_MÊS","TOTAL","VENCIMENTO","PAGO","VALOR_PAGO","DATA_PAGAMENTO","OBS"]]}
+    ).execute()
+    _sheets_cache[f"{spreadsheet_id}:FATURAS"] = True
 
 def read_parcelas(spreadsheet_id: str) -> list:
     svc = get_sheets_service()
     ensure_parcelas_sheet(spreadsheet_id)
-    result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="PARCELAMENTOS!A:H").execute()
+    result = svc.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="PARCELAMENTOS!A1:H50").execute()
     rows = result.get("values", [])
     if len(rows) <= 1:
         return []
@@ -518,7 +560,7 @@ def append_parcela(spreadsheet_id: str, row: list):
     svc = get_sheets_service()
     ensure_parcelas_sheet(spreadsheet_id)
     svc.spreadsheets().values().append(
-        spreadsheetId=spreadsheet_id, range="PARCELAMENTOS!A:H",
+        spreadsheetId=spreadsheet_id, range="PARCELAMENTOS!A1:H50",
         valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
         body={"values": [row]}
     ).execute()
@@ -1196,7 +1238,7 @@ async def cmd_fatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     svc = get_sheets_service()
     ensure_fatura_sheet(sid)
     try:
-        result = svc.spreadsheets().values().get(spreadsheetId=sid, range="FATURAS!A:H").execute()
+        result = svc.spreadsheets().values().get(spreadsheetId=sid, range="FATURAS!A1:H50").execute()
         values = result.get("values", [])
         if not values or len(values) == 1:
             await update.message.reply_text("📄 Nenhuma fatura registrada."); return
@@ -1483,7 +1525,7 @@ async def cmd_busca(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def execute_busca(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str):
     user = get_user(update.effective_user.id)
     sid = user["spreadsheet_id"]; ym = datetime.now().strftime("%Y-%m")
-    data = read_range(sid, f"{ym}!A1:J500")
+    data = read_range(sid, f"{ym}!A1:J50")
     if len(data) <= 1:
         await update.message.reply_text("📭 Nenhum gasto registrado esse mês."); return
 
@@ -1551,7 +1593,7 @@ async def cmd_relatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     income = user["income"]
 
     try:
-        data = read_range(sid, f"{ym}!A1:J500")
+        data = read_range(sid, f"{ym}!A1:J50")
         fixos = read_fixos(sid)
         parcelas = read_parcelas(sid)
     except Exception as e:
@@ -1999,7 +2041,7 @@ async def cmd_relatorio_resumo(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ Planilha não configurada. Use /start."); return
     ym = datetime.now().strftime("%Y-%m")
     try:
-        data = read_range(sid, f"{ym}!A1:J500")
+        data = read_range(sid, f"{ym}!A1:J50")
     except Exception as e:
         await update.message.reply_text(f"❌ Erro ao ler planilha: {e}"); return
     if len(data) <= 1:
@@ -2039,7 +2081,7 @@ async def cmd_relatorio_completo(update: Update, context: ContextTypes.DEFAULT_T
 
     # ── Resumo do mês ──
     try:
-        data = read_range(sid, f"{ym}!A1:J500")
+        data = read_range(sid, f"{ym}!A1:J50")
         total_gastos = sum(parse_float(r[5]) for r in data[1:] if len(r) > 5 and r[5]) if len(data) > 1 else 0
         cats = {}
         for r in data[1:]:
