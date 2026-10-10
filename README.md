@@ -120,62 +120,8 @@ Multi-user · Deploy automático · 24/7 no ar
 
 ---
 
-## 🚀 Deploy
 
-### Render (Recomendado)
-1. Faça fork deste repositório
-2. Crie um Web Service no [Render](https://render.com)
-3. Conecte o repositório GitHub
-4. Configure as variáveis de ambiente:
-   ```
-   TELEGRAM_BOT_TOKEN=seu_token_aqui
-   TEMPLATE_SPREADSHEET_ID=id_do_template
-   MASTER_SHEET_ID=id_da_master_sheet
-   GOOGLE_REFRESH_TOKEN=seu_refresh_token
-   GOOGLE_CLIENT_ID=seu_client_id
-   GOOGLE_CLIENT_SECRET=seu_client_secret
-   ```
-5. Deploy automático via git push
 
-### Local
-```bash
-git clone https://github.com/SallesCaio/financeiro-bot.git
-cd financeiro-bot
-pip install -r requirements.txt
-# Configure as variáveis de ambiente
-python bot.py
-```
-
----
-
-## 📁 Estrutura do Projeto
-
-```
-financeiro-bot/
-├── bot.py              # Core do bot (~2500 linhas, 32 estados)
-├── insights.py         # Módulo de insights automáticos (607 linhas)
-├── dashboard.py        # Dashboard web local porta 8888
-├── smart_categorizer.py # Categorização automática de gastos
-├── requirements.txt    # Dependências
-└── .gitignore
-```
-
-### Estados do ConversationHandler (32 estados)
-
-```
-Onboarding:    NAME → INCOME → CARDS → GOAL
-Gasto:         AMOUNT → DESC → CATEGORY → PAYMENT → CARD_SEL
-               → NECESSARY → OBS → IS_SUBSCRIPTION
-               → SUBSCRIPTION_NAME → SUBSCRIPTION_VALOR
-               → IS_INSTALMENT → INSTALMENT_QTY
-Fixo:          FIXO_NOME → FIXO_VALOR → FIXO_DIA → FIXO_CATEGORIA
-Parcela:       PARC_NOME → PARC_TOTAL → PARC_NPARC → PARC_VALOR_PARC → PARC_CATEGORIA
-Meta:          META_NOME → META_TARGET → META_CATEGORIA
-Busca:         BUSCA_TERMO
-Compras:       COMPRAS_CATEG → COMPRAS_ITEM → COMPRAS_QTY
-```
-
----
 
 ## 🛡️ Segurança
 
@@ -186,15 +132,6 @@ Compras:       COMPRAS_CATEG → COMPRAS_ITEM → COMPRAS_QTY
 
 ---
 
-## 📈 Roadmap
-
-- [ ] Notificações de vencimento de fatura
-- [ ] Exportar relatório em PDF
-- [ ] Modo casal/família (planilha compartilhada)
-- [ ] Integração com Open Finance
-- [ ] OCR de cupom fiscal por foto
-
----
 
 ## 📝 Licença
 
