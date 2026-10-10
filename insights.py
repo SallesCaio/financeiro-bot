@@ -11,7 +11,8 @@ from collections import defaultdict
 logger = logging.getLogger("FinBot.Insights")
 
 # Reutiliza funções do bot.py
-from bot import read_range, parse_float, get_sheets_service
+from finbot.sheets import read_range, parse_float
+from finbot.auth import get_sheets_service
 
 
 def _get_prev_month(year_month: str) -> str:

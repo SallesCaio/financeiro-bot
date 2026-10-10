@@ -6,8 +6,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+*.db
 bot_fixed.py
-finbot.db
 test_finbot_completo.py
-__pycache__
-*.pyc
