@@ -1,6 +1,10 @@
 """FinBot - cadastros.py (split de bot.py)."""
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.config import CATEGORIES, FIXO_CATEGORIA, FIXO_DIA, FIXO_NOME, FIXO_VALOR, META_CATEGORIA_META, META_NOME, META_TARGET, PARC_CATEGORIA, PARC_NOME, PARC_NPARC, PARC_TOTAL, PARC_VALOR_PARC
 from finbot.db import get_metas_from_db, get_user, upsert_meta_db
 from finbot.sheets import append_fixo, append_meta, append_parcela, read_fixos, read_metas, read_parcelas

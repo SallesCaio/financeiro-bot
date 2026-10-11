@@ -10,7 +10,7 @@ from pathlib import Path
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TEMPLATE_SPREADSHEET_ID = os.environ.get("TEMPLATE_SPREADSHEET_ID", "1m-GTVEJcqzzEBoslIJ5OpeSPj1HJnd3U-6m3JCH_uv8")
 ROOT = Path(__file__).resolve().parent.parent      # raiz do repo (este arquivo mora em finbot/)
-DB_PATH = ROOT / "finbot.db"                       # raiz, nao finbot/: smart_categorizer aponta pra ca
+DB_PATH = ROOT / "finbot.db"                       # raiz, nao finbot/
 RENDER_DB_PATH = Path("/tmp/finbot.db")
 MASTER_SHEET_ID = os.environ.get("MASTER_SHEET_ID", "1tTn01DomMhi5mrXW9yhrHzyE2-Uo9A85RlM_GsFTjzc")
 

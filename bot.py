@@ -55,3 +55,8 @@ def main():
 
     logger.info(f"🤖 FinBot iniciado na porta {port}")
     # ponytail: False porque o Render free hiberna e descarta a fila ao acordar;
+    # com pinger no /health o backlog nem se forma.
+    app.run_polling(drop_pending_updates=False, close_loop=False)
+
+if __name__ == "__main__":
+    main()

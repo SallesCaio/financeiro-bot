@@ -1,5 +1,9 @@
 """FinBot - menu.py (split de bot.py)."""
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.config import logger
 from finbot.db import get_user
 from finbot.keyboards import main_menu_keyboard

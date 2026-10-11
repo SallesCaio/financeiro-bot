@@ -1,6 +1,10 @@
 """FinBot - onboarding.py (split de bot.py)."""
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.config import CARDS, GOAL, INCOME, NAME, logger
 from finbot.db import get_user, upsert_user
 from finbot.sheets import create_user_spreadsheet, get_or_create_month_sheet, save_user_to_master

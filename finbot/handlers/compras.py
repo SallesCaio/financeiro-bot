@@ -1,6 +1,10 @@
 """FinBot - compras.py (split de bot.py)."""
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.db import get_user
 from finbot.sheets import append_compra, read_compras, update_compra_cell
 from finbot.keyboards import main_menu_keyboard

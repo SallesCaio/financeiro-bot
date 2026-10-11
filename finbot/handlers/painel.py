@@ -1,6 +1,10 @@
 """FinBot - painel.py (split de bot.py)."""
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.config import logger
 from finbot.auth import get_sheets_service
 from finbot.db import get_user

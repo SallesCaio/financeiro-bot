@@ -1,6 +1,10 @@
 """FinBot - gastos.py (split de bot.py)."""
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.config import AMOUNT, CARD_SEL, CATEGORIES, CATEGORY, DESC, INSTALMENT_QTY, IS_INSTALMENT, IS_SUBSCRIPTION, NECESSARY, OBS, PAYMENT, PAYMENT_METHODS, SUBSCRIPTION_NAME, SUBSCRIPTION_VALOR, logger
 from finbot.db import get_user, upsert_user
 from finbot.sheets import _calc_prox_ref_month, append_fixo, append_gasto, append_parcela, ensure_fixos_sheet, ensure_parcelas_sheet, get_or_create_month_sheet, update_fatura_total

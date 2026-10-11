@@ -1,4 +1,5 @@
 """FinBot - keyboards.py (split de bot.py)."""
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from finbot.config import CATEGORIES, PAYMENT_METHODS
 
 

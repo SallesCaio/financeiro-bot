@@ -1,6 +1,10 @@
 """FinBot - conta.py (split de bot.py)."""
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from finbot.auth import get_sheets_service
 from finbot.db import get_achievements, get_user, upsert_user
 from finbot.sheets import append_gasto, get_or_create_month_sheet, save_user_to_master
