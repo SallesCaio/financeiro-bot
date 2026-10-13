@@ -35,90 +35,10 @@ DEFAULT_SPREADSHEET_ID = os.environ.get(
 )
 
 # ════════════════════════════════════════════════════════
-# GOOGLE AUTH — reutiliza token.json do bot
+# GOOGLE AUTH / SHEETS — vem do pacote (antes: cópia divergente do bot.py)
 # ════════════════════════════════════════════════════════
-_sheets_service = None
-
-
-def _get_credentials():
-    """Carrega credenciais Google do token.json."""
-    from google.oauth2.credentials import Credentials
-
-    # Tenta múltiplos caminhos
-    token_paths = [
-        Path(__file__).parent / "google_token.json",
-        Path.home() / "AppData" / "Local" / "hermes" / "google_token.json",
-        Path.home() / ".hermes" / "financeiro-bot" / "google_token.json",
-    ]
-
-    for token_path in token_paths:
-        if token_path.exists():
-            with open(token_path) as f:
-                d = json.load(f)
-            return Credentials(
-                token=d["token"],
-                refresh_token=d["refresh_token"],
-                token_uri=d["token_uri"],
-                client_id=d["client_id"],
-                client_secret=d["client_secret"],
-                scopes=d["scopes"],
-            )
-
-    # Fallback: variáveis de ambiente
-    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
-    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-    token_uri = os.environ.get("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
-    scopes = os.environ.get(
-        "GOOGLE_SCOPES",
-        "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file"
-    ).split()
-    token = os.environ.get("GOOGLE_TOKEN", "")
-
-    if refresh_token and client_id and client_secret:
-        return Credentials(
-            token=token, refresh_token=refresh_token,
-            token_uri=token_uri, client_id=client_id,
-            client_secret=client_secret, scopes=scopes,
-        )
-
-    raise RuntimeError("Credenciais Google não encontradas.")
-
-
-def get_sheets_service():
-    global _sheets_service
-    if _sheets_service is None:
-        from googleapiclient.discovery import build
-        _sheets_service = build("sheets", "v4", credentials=_get_credentials())
-    return _sheets_service
-
-
-# ════════════════════════════════════════════════════════
-# HELPER: parse_float (mesmo do bot.py)
-# ════════════════════════════════════════════════════════
-def parse_float(val) -> float:
-    """Converte valor BR para float: 1.234,56 → 1234.56"""
-    if val is None:
-        return 0.0
-    try:
-        s = str(val).replace("R$", "").strip()
-        if "," in s:
-            s = s.replace(".", "")
-            s = s.replace(",", ".")
-        return float(s)
-    except (ValueError, TypeError):
-        return 0.0
-
-
-# ════════════════════════════════════════════════════════
-# GOOGLE SHEETS — Leitura de dados
-# ════════════════════════════════════════════════════════
-def read_range(spreadsheet_id: str, range_str: str):
-    svc = get_sheets_service()
-    r = svc.spreadsheets().values().get(
-        spreadsheetId=spreadsheet_id, range=range_str
-    ).execute()
-    return r.get("values", [])
+from finbot.auth import get_sheets_service
+from finbot.sheets import parse_float, read_range
 
 
 def get_month_sheet_data(spreadsheet_id: str, year_month: str) -> list:

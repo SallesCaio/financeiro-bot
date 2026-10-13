@@ -100,7 +100,7 @@ async def cmd_insights(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ym = datetime.now().strftime("%Y-%m")
     
     try:
-        from insights import gerar_insights
+        from finbot.insights import gerar_insights
         insights_list = gerar_insights(sid, ym)
     except Exception as e:
         logger.error(f"Erro insights: {e}")

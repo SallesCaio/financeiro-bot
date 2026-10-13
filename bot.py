@@ -15,7 +15,7 @@ def main():
     # Dashboard só inicia localmente (não no Render para evitar conflito de porta)
     if not os.environ.get("RENDER"):
         try:
-            from dashboard import start_dashboard
+            from finbot.dashboard import start_dashboard
             start_dashboard(blocking=False)
             logger.info("📊 Dashboard iniciado na porta 8888")
         except Exception as e:

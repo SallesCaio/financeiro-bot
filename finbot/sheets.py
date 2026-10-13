@@ -168,21 +168,6 @@ def _calc_prox_ref_month(ref_month: str) -> str:
         return f"{y + 1}-01"
     return f"{y}-{m + 1:02d}"
 
-def ensure_fatura_sheet(spreadsheet_id: str):
-    """Cria aba FATURAS se não existir. Usa cache."""
-    if _sheet_exists(spreadsheet_id, "FATURAS"):
-        return
-    svc = get_sheets_service()
-    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
-        "requests": [{"addSheet": {"properties": {"title": "FATURAS", "gridProperties": {"rowCount": 100, "columnCount": 8}}}}]
-    }).execute()
-    svc.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id, range="FATURAS!A1:H1",
-        valueInputOption="USER_ENTERED",
-        body={"values": [["CARTÃO","REF_MÊS","TOTAL","VENCIMENTO","PAGO","VALOR_PAGO","DATA_PAGAMENTO","OBS"]]}
-    ).execute()
-    _sheets_cache[f"{spreadsheet_id}:FATURAS"] = True
-
 def get_fatura_row(spreadsheet_id: str, cartao: str, ref_month: str):
     """Busca fatura por cartão + mês de referência."""
     svc = get_sheets_service()
@@ -245,21 +230,6 @@ def append_fatura_row(spreadsheet_id: str, row: list):
     ).execute()
 
 # ── FIXOS ──
-def ensure_fixos_sheet(spreadsheet_id: str):
-    """Cria aba FIXOS se não existir. NÃO recria se já existir."""
-    svc = get_sheets_service()
-    meta = svc.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-    if any(s["properties"]["title"] == "FIXOS" for s in meta.get("sheets", [])):
-        return  # Já existe
-    svc.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body={
-        "requests": [{"addSheet": {"properties": {"title": "FIXOS", "gridProperties": {"rowCount": 500, "columnCount": 6}}}}]
-    }).execute()
-    svc.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id, range="FIXOS!A1:F1",
-        valueInputOption="USER_ENTERED",
-        body={"values": [["NOME","VALOR","DIA_VENCIMENTO","CATEGORIA","ATIVO","OBS"]]}
-    ).execute()
-
 def read_fixos(spreadsheet_id: str) -> list:
     svc = get_sheets_service()
     ensure_fixos_sheet(spreadsheet_id)
@@ -276,7 +246,6 @@ def read_fixos(spreadsheet_id: str) -> list:
                 "ativo": row[4].upper()=="SIM" if len(row)>4 else True,
                 "obs": row[5] if len(row)>5 else ""
             })
-    return items
     return items
 
 def append_fixo(spreadsheet_id: str, row: list):
